@@ -11,6 +11,7 @@ const App: React.FC = () => {
   const [imageSource, setImageSource] = useState<string | null>(null);
   const [useImageColors, setUseImageColors] = useState<boolean>(false);
   const [depthIntensity, setDepthIntensity] = useState<number>(0); 
+  const [isDrawing, setIsDrawing] = useState<boolean>(false);
   
   // Efekt Presets
   const [activePreset, setActivePreset] = useState<PresetType>('none');
@@ -42,20 +43,34 @@ const App: React.FC = () => {
     setCurrentText(text);
     setImageSource(null);
     setDepthIntensity(0);
+    setIsDrawing(false);
   };
 
   const handleImageUpload = (imgSrc: string, useOriginalColors: boolean) => {
     setImageSource(imgSrc);
     setUseImageColors(useOriginalColors);
     setCurrentText('');
-    setDepthIntensity(0); 
+    
+    // Eğer çizimden geliyorsa (isDrawing true ise), otomatik derinlik ver
+    if (isDrawing) {
+        setDepthIntensity(2.0); // Otomatik derinlik efekti
+        setIsDrawing(false);
+    } else {
+        setDepthIntensity(0);
+    }
+  };
+
+  // Çizim modu başladığında
+  const handleDrawingStart = () => {
+    setCurrentText('');
+    setImageSource(null);
+    setUseImageColors(false);
+    setIsDrawing(true); // Çizim modunu aktif et (küreyi gizler)
   };
 
   const handleColorChange = (color: string) => {
     setParticleColor(color);
-    // Renk seçildiğinde efekt açıksa kapat, böylece saf renk görünür
     setActivePreset('none'); 
-    
     if (imageSource) {
       setUseImageColors(false);
     }
@@ -86,6 +101,7 @@ const App: React.FC = () => {
     setRepulsionRadius(50);
     setParticleCount(30000);
     setParticleSpacing(0);
+    setIsDrawing(false);
   };
 
   return (
@@ -105,12 +121,14 @@ const App: React.FC = () => {
         activePreset={activePreset}
         audioMode={audioMode}
         audioUrl={audioUrl}
+        isDrawing={isDrawing}
       />
       
       {/* Kullanıcı Arayüzü */}
       <UIOverlay 
         onSubmit={handleTextSubmit} 
         onImageUpload={handleImageUpload}
+        onDrawingStart={handleDrawingStart}
         currentColor={particleColor}
         onColorChange={handleColorChange}
         onResetColors={handleResetColors}

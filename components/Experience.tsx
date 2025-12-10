@@ -21,6 +21,7 @@ interface ExperienceProps {
   activePreset: PresetType;
   audioMode: AudioMode;
   audioUrl: string | null;
+  isDrawing: boolean;
 }
 
 export const Experience: React.FC<ExperienceProps> = ({ 
@@ -36,7 +37,8 @@ export const Experience: React.FC<ExperienceProps> = ({
   particleSpacing,
   activePreset,
   audioMode,
-  audioUrl
+  audioUrl,
+  isDrawing
 }) => {
   const controlsRef = useRef<any>(null);
   
@@ -67,7 +69,7 @@ export const Experience: React.FC<ExperienceProps> = ({
         maxDistance={50}
         rotateSpeed={0.5}
         mouseButtons={{
-          LEFT: THREE.MOUSE.PAN, // Pan kapalı olduğu için sol tık kamerayı etkilemez (custom event için boşta kalır)
+          LEFT: THREE.MOUSE.PAN, 
           MIDDLE: THREE.MOUSE.DOLLY,
           RIGHT: THREE.MOUSE.ROTATE
         }}
@@ -91,6 +93,7 @@ export const Experience: React.FC<ExperienceProps> = ({
         activePreset={activePreset}
         audioMode={audioMode}
         audioUrl={audioUrl}
+        isDrawing={isDrawing}
       />
     </Canvas>
   );

@@ -1,10 +1,9 @@
-import React, { useMemo, useRef, useEffect } from 'react';
+import React, { useMemo, useRef, useEffect, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader';
 
 const SPHERE_RADIUS = 4;
-// Türkçe karakter desteği için Droid Sans Bold kullanıyoruz
 const FONT_URL = 'https://cdn.jsdelivr.net/npm/three/examples/fonts/droid/droid_sans_bold.typeface.json';
 
 type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury' | 'disco';
@@ -25,6 +24,7 @@ interface MagicParticlesProps {
   activePreset: PresetType;
   audioMode: AudioMode;
   audioUrl: string | null;
+  isDrawing: boolean;
 }
 
 export const MagicParticles: React.FC<MagicParticlesProps> = ({ 
@@ -41,10 +41,12 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   previousPositions,
   activePreset,
   audioMode,
-  audioUrl
+  audioUrl,
+  isDrawing
 }) => {
   const pointsRef = useRef<THREE.Points>(null);
   const { camera, gl } = useThree();
+  const [isProcessing, setIsProcessing] = useState(false);
   
   const isRightClicking = useRef(false);
   
@@ -55,12 +57,10 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   const audioSourceRef = useRef<MediaElementAudioSourceNode | MediaStreamAudioSourceNode | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
 
-  // Sahne sınırlarını hesaplamak için (X ekseni mapping için gerekli)
   const boundsRef = useRef<{minX: number, maxX: number}>({ minX: -5, maxX: 5 });
 
   // --- Audio Setup ---
   useEffect(() => {
-    // Cleanup
     if (audioContextRef.current) {
         audioContextRef.current.close();
         audioContextRef.current = null;
@@ -123,13 +123,10 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
 
   const spherePositions = useMemo(() => {
     const positions = new Float32Array(particleCount * 3);
-    const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // ~2.3999 rad
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
 
     for (let i = 0; i < particleCount; i++) {
-      // Golden Angle Dağılımı:
-      // Bu yöntem, N değiştiğinde indexlerin açısal pozisyonunu (theta) korur,
-      // sadece düşey pozisyonu (y) biraz kaydırır. Böylece "patlama" olmaz.
-      const y = 1 - (i / (particleCount - 1)) * 2; // 1'den -1'e
+      const y = 1 - (i / (particleCount - 1)) * 2; 
       const radius = Math.sqrt(1 - y * y);
       const theta = goldenAngle * i;
 
@@ -141,7 +138,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       positions[i * 3 + 1] = yPos;
       positions[i * 3 + 2] = z;
     }
-    // Küre modunda bounds sabittir
     boundsRef.current = { minX: -SPHERE_RADIUS, maxX: SPHERE_RADIUS };
     return positions;
   }, [particleCount]);
@@ -150,20 +146,13 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     const current = new Float32Array(particleCount * 3);
     const targets = new Float32Array(particleCount * 3);
     
-    // Varsayılan olarak küre pozisyonlarını ayarla
     targets.set(spherePositions);
     current.set(spherePositions);
 
-    // Eğer önceki pozisyonlar varsa, onları koru
     if (previousPositions && previousPositions.current) {
         const prev = previousPositions.current;
         const copyLength = Math.min(prev.length, current.length);
-        
-        // Eskileri kopyala
         current.set(prev.subarray(0, copyLength), 0);
-
-        // Yeni eklenenler zaten targets (spherePositions) olarak set edildiği için
-        // oldukları yerde (yani hedeflerinde) doğarlar. Hareket etmezler.
     }
 
     return {
@@ -176,14 +165,13 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     };
   }, [particleCount, spherePositions, previousPositions]);
 
-  // --- Event Listeners (Sadece Tıklama için) ---
+  // --- Event Listeners ---
   useEffect(() => {
     const handlePointerDown = (e: PointerEvent) => {
       if (e.button === 2) {
         isRightClicking.current = true;
       }
       
-      // Eğer etkileşim devre dışıysa (örn: mouse butonlar üzerindeyse) işlemi durdur.
       if (disableMouseRepulsion) return;
 
       if (e.button === 0) { 
@@ -219,12 +207,12 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
 
   // --- Reset / Init ---
   useEffect(() => {
-    if (!text && !image) {
+    if (!text && !image && !isProcessing) {
         simulationData.targets.set(spherePositions);
         simulationData.zOffsets.fill(0);
         boundsRef.current = { minX: -SPHERE_RADIUS, maxX: SPHERE_RADIUS };
     }
-  }, [text, image, spherePositions, simulationData]);
+  }, [text, image, spherePositions, simulationData, isProcessing]);
 
   // --- Color Management ---
   useEffect(() => {
@@ -268,7 +256,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
 
   // --- Text Mesh Generation ---
   useEffect(() => {
-    if (image) return;
+    if (image || isProcessing) return;
     if (!text || text.trim() === '') return;
 
     const loader = new FontLoader();
@@ -289,7 +277,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       const zMid = -0.5 * (bbox.max.z - bbox.min.z);
       geometry.translate(xMid, yMid, zMid);
       
-      // Bounds hesapla
       boundsRef.current = { minX: bbox.min.x + xMid, maxX: bbox.max.x + xMid };
 
       const maxDim = Math.max(bbox.max.x - bbox.min.x, bbox.max.y - bbox.min.y);
@@ -297,7 +284,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       const scaleFactor = targetSize / (maxDim || 1);
       geometry.scale(scaleFactor, scaleFactor, scaleFactor);
       
-      // Scale sonrası bounds güncelle
       boundsRef.current.minX *= scaleFactor;
       boundsRef.current.maxX *= scaleFactor;
 
@@ -354,40 +340,51 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       simulationData.zOffsets.fill(0); 
       geometry.dispose();
     }, undefined, (err) => { console.error("Font hatası:", err); simulationData.targets.set(spherePositions); });
-  }, [text, image, spherePositions, simulationData, particleCount]);
+  }, [text, image, spherePositions, simulationData, particleCount, isProcessing]);
 
   // --- Image Processing ---
   useEffect(() => {
     if (!image) return;
+    
+    setIsProcessing(true);
+
     const img = new Image();
-    img.src = image;
-    img.crossOrigin = "Anonymous";
+    
     img.onload = () => {
         const canvas = document.createElement('canvas');
-        const maxSize = 256; 
+        const maxSize = 1024; 
         let w = img.width; let h = img.height;
         if (w > h) { if (w > maxSize) { h *= maxSize / w; w = maxSize; } } 
         else { if (h > maxSize) { w *= maxSize / h; h = maxSize; } }
         canvas.width = w; canvas.height = h;
         const ctx = canvas.getContext('2d');
-        if (!ctx) return;
+        if (!ctx) { setIsProcessing(false); return; }
+        
         ctx.drawImage(img, 0, 0, w, h);
         const imgData = ctx.getImageData(0, 0, w, h);
         const data = imgData.data;
         const validPixels = [];
-        for (let y = 0; y < h; y++) {
-            for (let x = 0; x < w; x++) {
+        
+        for (let y = 0; y < h; y += 2) {
+            for (let x = 0; x < w; x += 2) {
                 const index = (y * w + x) * 4;
-                if (data[index + 3] > 50) { 
+                if (data[index + 3] > 10) { 
                     validPixels.push({
                         x: (x / w) - 0.5, y: 0.5 - (y / h), 
                         r: data[index]/255, g: data[index+1]/255, b: data[index+2]/255,
+                        // Luminance artık Z için kullanılmayacak, sadece renk referansı
                         luminance: (0.2126 * data[index] + 0.7152 * data[index+1] + 0.0722 * data[index+2]) / 255
                     });
                 }
             }
         }
-        if (validPixels.length === 0) return;
+
+        if (validPixels.length === 0) {
+            console.warn("Geçerli piksel bulunamadı");
+            setIsProcessing(false);
+            return;
+        }
+        
         const aspect = w / h;
         const targetScale = SPHERE_RADIUS * 2.0; 
         
@@ -414,8 +411,14 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
             newTargets[i * 3] = finalX; 
             newTargets[i * 3 + 1] = finalY;
 
-            newZOffsets[i] = (pixel.luminance - 0.5); 
+            // ÖNEMLİ DEĞİŞİKLİK: Z DEĞERİNİ RASTGELE DAĞITIYORUZ
+            // Böylece şekil sadece bir düzlem değil, hacimli bir obje (extruded) gibi görünür.
+            // [-0.5, 0.5] aralığında rastgele bir değer. 
+            // depthIntensity ile çarpılınca (örn: 2.0), toplam kalınlık artar.
+            newZOffsets[i] = (Math.random() - 0.5); 
+            
             newTargets[i * 3 + 2] = newZOffsets[i] * depthIntensity;
+            
             newOriginalColors[i * 3] = pixel.r; newOriginalColors[i * 3 + 1] = pixel.g; newOriginalColors[i * 3 + 2] = pixel.b;
             if (useImageColors) { newColors[i * 3] = pixel.r; newColors[i * 3 + 1] = pixel.g; newColors[i * 3 + 2] = pixel.b; } 
             else { newColors[i * 3] = defaultColorRGB.r; newColors[i * 3 + 1] = defaultColorRGB.g; newColors[i * 3 + 2] = defaultColorRGB.b; }
@@ -428,12 +431,23 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
         simulationData.zOffsets.set(newZOffsets);
         simulationData.originalColors.set(newOriginalColors);
         if (pointsRef.current) pointsRef.current.geometry.attributes.color.needsUpdate = true;
+        
+        setIsProcessing(false);
     };
-  }, [image, simulationData, particleCount]);
+
+    img.onerror = () => {
+        console.error("Resim yükleme hatası");
+        setIsProcessing(false);
+    }
+    
+    img.src = image;
+    
+  }, [image, simulationData, particleCount, color, useImageColors, depthIntensity]);
 
   // --- Animation Loop ---
   useFrame((state) => {
-    if (!pointsRef.current) return;
+    // Çizim modundaysak veya işleniyorsa animasyonu durdur
+    if (isDrawing || isProcessing || !pointsRef.current) return;
 
     // AUDIO VERİSİNİ AL
     let isAudioActive = audioMode !== 'none';
@@ -458,7 +472,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     const positionsAttribute = pointsRef.current.geometry.attributes.position;
     const colorsAttribute = pointsRef.current.geometry.attributes.color;
     
-    // --- MOUSE INTERACTION HESAPLAMASI (GELİŞMİŞ RAYCASTING) ---
+    // --- MOUSE INTERACTION ---
     const pointer = state.pointer;
     const isInsideCanvas = Math.abs(pointer.x) <= 1.05 && Math.abs(pointer.y) <= 1.05;
 
@@ -706,6 +720,8 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     }
   });
   
+  if (isDrawing || isProcessing) return null;
+
   let computedSize = Math.max(0.01, 0.06 - (particleSpacing / 50) * 0.05);
   if (activePreset === 'mercury') computedSize *= 1.5;
 
