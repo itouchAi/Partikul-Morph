@@ -3,6 +3,7 @@ import { Experience } from './components/Experience';
 import { UIOverlay } from './components/UIOverlay';
 
 export type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury';
+export type AudioMode = 'none' | 'file' | 'mic';
 
 const App: React.FC = () => {
   const [currentText, setCurrentText] = useState<string>('');
@@ -13,6 +14,10 @@ const App: React.FC = () => {
   
   // Efekt Presets
   const [activePreset, setActivePreset] = useState<PresetType>('none');
+
+  // Ses Ayarları
+  const [audioMode, setAudioMode] = useState<AudioMode>('none');
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
   // Ayarlar
   const [repulsionStrength, setRepulsionStrength] = useState<number>(50);
@@ -59,6 +64,27 @@ const App: React.FC = () => {
     }
   };
 
+  const handleAudioChange = (mode: AudioMode, url: string | null) => {
+    setAudioMode(mode);
+    setAudioUrl(url);
+  };
+
+  // HER ŞEYİ SIFIRLA
+  const handleResetAll = () => {
+    setCurrentText('');
+    setParticleColor('#ffffff');
+    setImageSource(null);
+    setUseImageColors(false);
+    setDepthIntensity(0);
+    setActivePreset('none');
+    setAudioMode('none');
+    setAudioUrl(null);
+    setRepulsionStrength(50);
+    setRepulsionRadius(50);
+    setParticleCount(30000);
+    setParticleSpacing(0);
+  };
+
   return (
     <div className="relative w-full h-full bg-black">
       {/* 3D Sahne */}
@@ -74,6 +100,8 @@ const App: React.FC = () => {
         particleCount={particleCount}
         particleSpacing={particleSpacing}
         activePreset={activePreset}
+        audioMode={audioMode}
+        audioUrl={audioUrl}
       />
       
       {/* Kullanıcı Arayüzü */}
@@ -99,6 +127,9 @@ const App: React.FC = () => {
         onSpacingChange={setParticleSpacing}
         activePreset={activePreset}
         onPresetChange={setActivePreset}
+        onAudioChange={handleAudioChange}
+        audioMode={audioMode}
+        onResetAll={handleResetAll}
       />
     </div>
   );

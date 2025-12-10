@@ -4,9 +4,8 @@ import { OrbitControls } from '@react-three/drei';
 import { MagicParticles } from './MagicParticles';
 import * as THREE from 'three';
 
-// App.tsx'den gelen PresetType'ı kullanmak için string olarak tanımlayabiliriz veya import edebiliriz.
-// Basitlik adına string literal union kullanıyoruz.
 type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury';
+type AudioMode = 'none' | 'file' | 'mic';
 
 interface ExperienceProps {
   text: string;
@@ -20,6 +19,8 @@ interface ExperienceProps {
   particleCount: number;
   particleSpacing: number;
   activePreset: PresetType;
+  audioMode: AudioMode;
+  audioUrl: string | null;
 }
 
 export const Experience: React.FC<ExperienceProps> = ({ 
@@ -33,7 +34,9 @@ export const Experience: React.FC<ExperienceProps> = ({
   repulsionRadius,
   particleCount,
   particleSpacing,
-  activePreset
+  activePreset,
+  audioMode,
+  audioUrl
 }) => {
   const controlsRef = useRef<any>(null);
   
@@ -84,6 +87,8 @@ export const Experience: React.FC<ExperienceProps> = ({
         particleSpacing={particleSpacing}
         previousPositions={previousPositions}
         activePreset={activePreset}
+        audioMode={audioMode}
+        audioUrl={audioUrl}
       />
     </Canvas>
   );

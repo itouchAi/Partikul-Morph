@@ -7,6 +7,7 @@ const SPHERE_RADIUS = 4;
 const FONT_URL = 'https://cdn.jsdelivr.net/npm/three/examples/fonts/helvetiker_bold.typeface.json';
 
 type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury';
+type AudioMode = 'none' | 'file' | 'mic';
 
 interface MagicParticlesProps {
   text: string;
@@ -21,6 +22,8 @@ interface MagicParticlesProps {
   particleSpacing: number;
   previousPositions: React.MutableRefObject<Float32Array | null>;
   activePreset: PresetType;
+  audioMode: AudioMode;
+  audioUrl: string | null;
 }
 
 export const MagicParticles: React.FC<MagicParticlesProps> = ({ 
@@ -35,7 +38,9 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   particleCount,
   particleSpacing,
   previousPositions,
-  activePreset
+  activePreset,
+  audioMode,
+  audioUrl
 }) => {
   const pointsRef = useRef<THREE.Points>(null);
   const { camera, gl } = useThree();
@@ -43,6 +48,74 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   const isHovered = useRef(false);
   const isRightClicking = useRef(false);
   
+  // Audio Refs
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const dataArrayRef = useRef<Uint8Array | null>(null);
+  const audioSourceRef = useRef<MediaElementAudioSourceNode | MediaStreamAudioSourceNode | null>(null);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
+
+  // --- Audio Setup ---
+  useEffect(() => {
+    // Önceki sesleri temizle
+    if (audioContextRef.current) {
+        audioContextRef.current.close();
+        audioContextRef.current = null;
+    }
+    if (audioElementRef.current) {
+        audioElementRef.current.pause();
+        audioElementRef.current = null;
+    }
+
+    if (audioMode === 'none') return;
+
+    const initAudio = async () => {
+        try {
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            const ctx = new AudioContextClass();
+            audioContextRef.current = ctx;
+
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 64; // Düşük tutarak performansı koruyalım
+            analyserRef.current = analyser;
+
+            const bufferLength = analyser.frequencyBinCount;
+            dataArrayRef.current = new Uint8Array(bufferLength);
+
+            if (audioMode === 'file' && audioUrl) {
+                const audioEl = new Audio(audioUrl);
+                audioEl.crossOrigin = "anonymous";
+                audioEl.loop = true;
+                audioEl.play().catch(e => console.warn("Otomatik oynatma engellendi, kullanıcı etkileşimi gerekebilir.", e));
+                
+                audioElementRef.current = audioEl;
+                const source = ctx.createMediaElementSource(audioEl);
+                audioSourceRef.current = source;
+                
+                source.connect(analyser);
+                analyser.connect(ctx.destination); // Hoparlöre ver
+            } 
+            else if (audioMode === 'mic') {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const source = ctx.createMediaStreamSource(stream);
+                audioSourceRef.current = source;
+                
+                source.connect(analyser);
+                // Mikrofonu destination'a bağlama (feedback loop olur)
+            }
+        } catch (err) {
+            console.error("Ses başlatma hatası:", err);
+        }
+    };
+
+    initAudio();
+
+    return () => {
+        if (audioContextRef.current) audioContextRef.current.close();
+        if (audioElementRef.current) audioElementRef.current.pause();
+    };
+  }, [audioMode, audioUrl]);
+
   const spherePositions = useMemo(() => {
     const positions = new Float32Array(particleCount * 3);
     const vector = new THREE.Vector3();
@@ -94,15 +167,19 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       }
       if (disableMouseRepulsion) return;
       if (e.button === 0) { 
+        // Audio Context resume (tarayıcı politikası için)
+        if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+            audioContextRef.current.resume();
+        }
+
         const { velocities } = simulationData;
         const explodeForce = 2.0 + (repulsionStrength / 100) * 8.0; 
         
-        // Elementlere göre patlama karakteristiği
         for (let i = 0; i < particleCount * 3; i++) {
             let mod = 1.0;
-            if (activePreset === 'water') mod = 0.5; // Su daha ağır patlar
-            if (activePreset === 'electric') mod = 1.5; // Elektrik daha şiddetli
-            if (activePreset === 'mercury') mod = 0.3; // Civa çok az dağılır
+            if (activePreset === 'water') mod = 0.5; 
+            if (activePreset === 'electric') mod = 1.5; 
+            if (activePreset === 'mercury') mod = 0.3; 
             
             velocities[i] += (Math.random() - 0.5) * explodeForce * mod; 
         }
@@ -138,8 +215,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   useEffect(() => {
     const { colors, originalColors } = simulationData;
 
-    // Eğer preset aktifse, useFrame içinde renkler dinamik olarak yönetilir.
-    // Ancak preset yoksa standart renklere dön.
     if (activePreset === 'none') {
         if (image && useImageColors) {
             colors.set(originalColors);
@@ -315,6 +390,23 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   useFrame((state) => {
     if (!pointsRef.current) return;
 
+    // AUDIO DATA FETCHING
+    let bass = 0;
+    let treble = 0;
+    
+    if (analyserRef.current && dataArrayRef.current) {
+        analyserRef.current.getByteFrequencyData(dataArrayRef.current);
+        // Bass: 0-10 arası binler (kabaca)
+        let b = 0;
+        for(let k=0; k<10; k++) b += dataArrayRef.current[k];
+        bass = b / 10 / 255.0; // 0.0 - 1.0 arası
+
+        // Treble: 20-32 arası binler
+        let t = 0;
+        for(let k=20; k<32; k++) t += dataArrayRef.current[k];
+        treble = t / 12 / 255.0;
+    }
+
     const { current, targets, velocities, colors } = simulationData;
     const positionsAttribute = pointsRef.current.geometry.attributes.position;
     const colorsAttribute = pointsRef.current.geometry.attributes.color;
@@ -325,24 +417,19 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     const distanceToOrigin = -camera.position.z / dir.z;
     const mouseWorldPos = camera.position.clone().add(dir.multiplyScalar(distanceToOrigin));
 
-    // Presetlere göre fizik parametreleri
     let springStrength = 0.05;
     let friction = 0.94;
     
-    if (activePreset === 'water') {
-        springStrength = 0.02; // Daha gevşek
-        friction = 0.96; // Daha az sürtünme, akışkan
-    } else if (activePreset === 'mercury') {
-        springStrength = 0.08; // Sıkı
-        friction = 0.90; // Çok sürtünmeli, ağır
-    } else if (activePreset === 'electric') {
-        springStrength = 0.1; // Çok hızlı tepki
-        friction = 0.85; // Enerjik
-    }
+    if (activePreset === 'water') { springStrength = 0.02; friction = 0.96; } 
+    else if (activePreset === 'mercury') { springStrength = 0.08; friction = 0.90; } 
+    else if (activePreset === 'electric') { springStrength = 0.1; friction = 0.85; }
 
     const dynamicRepulsionRadius = 1.0 + (repulsionRadius / 100) * 5.0; 
     const repulsionForce = (repulsionStrength / 50.0);
     const time = state.clock.elapsedTime;
+
+    // AUDIO PULSE (Merkezden dışa doğru veya şekil büyümesi)
+    const pulseFactor = 1.0 + bass * 0.5; // Bass vurduğunda hedefi %50 büyüt
 
     for (let i = 0; i < particleCount; i++) {
       const ix = i * 3;
@@ -357,28 +444,32 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       let vy = velocities[iy];
       let vz = velocities[iz];
       
-      const tx = targets[ix];
-      const ty = targets[iy];
-      const tz = targets[iz];
+      const tx = targets[ix] * pulseFactor;
+      const ty = targets[iy] * pulseFactor;
+      const tz = targets[iz] * pulseFactor;
 
       // Hedefe git
       vx += (tx - px) * springStrength;
       vy += (ty - py) * springStrength;
       vz += (tz - pz) * springStrength;
 
-      // EFEKT ÖZEL HAREKETLERİ (Idle Motion)
+      // AUDIO JITTER (Tiz seslerde titreme)
+      if (treble > 0.3) {
+          vx += (Math.random() - 0.5) * treble * 0.1;
+          vy += (Math.random() - 0.5) * treble * 0.1;
+          vz += (Math.random() - 0.5) * treble * 0.1;
+      }
+
+      // PRESET MOTION
       if (activePreset === 'fire') {
-         // Isınan hava yükselir
          vy += 0.005 + Math.random() * 0.005; 
          vx += (Math.random() - 0.5) * 0.01;
       } 
       else if (activePreset === 'water') {
-         // Dalgalanma
          vz += Math.sin(time * 2 + px * 0.5) * 0.002;
          vy += Math.cos(time * 1.5 + pz * 0.5) * 0.001;
       }
       else if (activePreset === 'electric') {
-         // Titreme (Jitter)
          if (Math.random() > 0.95) {
              vx += (Math.random() - 0.5) * 0.2;
              vy += (Math.random() - 0.5) * 0.2;
@@ -397,15 +488,12 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
             const dist = Math.sqrt(distSq);
             let force = (1 - dist / dynamicRepulsionRadius) * repulsionForce;
             
-            // Efekt Bazlı Tepki
             if (activePreset === 'electric') {
-                // Elektrik: Keskin, zikzaklı itme
                 force *= 2.0;
                 vx += (dx / dist) * force + (Math.random()-0.5) * force;
                 vy += (dy / dist) * force + (Math.random()-0.5) * force;
                 vz += (dz / dist) * force;
             } else if (activePreset === 'mercury') {
-                // Civa: Yavaş ayrılır, birbirini çeker
                  force *= 0.5;
                  vx += (dx / dist) * force;
                  vy += (dy / dist) * force;
@@ -432,39 +520,43 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
 
       positionsAttribute.setXYZ(i, current[ix], current[iy], current[iz]);
 
-      // EFEKT RENKLENDİRMESİ
-      if (activePreset !== 'none') {
+      // COLOR UPDATE (Audio etkili)
+      if (activePreset !== 'none' || audioMode !== 'none') {
           let r=1, g=1, b=1;
-          
+          // Audio Tiz vurduğunda beyazlat
+          const flash = treble * 2.0; 
+
           if (activePreset === 'electric') {
-              // Mavi/Beyaz çakmalar
               const isFlash = Math.random() > 0.98;
               if (isFlash) { r=1; g=1; b=1; } 
-              else { r=0.1; g=0.5; b=1.0; } // Elektrik mavisi
+              else { r=0.1 + flash; g=0.5 + flash; b=1.0; } 
           } 
           else if (activePreset === 'fire') {
-              // Yüksekliğe göre Kırmızı -> Sarı
-              // py (y pozisyonu) -4 ile 4 arası genelde
               const heightFactor = Math.min(1, Math.max(0, (py + 4) / 8));
               r = 1.0;
-              g = heightFactor * 0.8; // Aşağısı kırmızı, yukarısı sarı
-              b = 0.1;
+              g = heightFactor * 0.8 + flash * 0.5; 
+              b = 0.1 + flash;
           }
           else if (activePreset === 'water') {
-              // Derinlik/Z'ye göre mavi tonları
               const depthFactor = Math.sin(time + px);
-              r = 0.0;
-              g = 0.5 + depthFactor * 0.2;
+              r = 0.0 + flash;
+              g = 0.5 + depthFactor * 0.2 + flash;
               b = 1.0;
           }
           else if (activePreset === 'mercury') {
-              // Metalik gri/beyaz, hafif yansıma simülasyonu
               const shine = Math.abs(Math.sin(px * 2 + time));
-              r = 0.6 + shine * 0.4;
-              g = 0.6 + shine * 0.4;
-              b = 0.7 + shine * 0.3;
+              r = 0.6 + shine * 0.4 + flash * 0.2;
+              g = 0.6 + shine * 0.4 + flash * 0.2;
+              b = 0.7 + shine * 0.3 + flash * 0.2;
           }
-          colorsAttribute.setXYZ(i, r, g, b);
+          // Eğer sadece Audio modundaysa ve preset yoksa, mevcut renge parlaklık ekle
+          else if (audioMode !== 'none') {
+             // Orijinal renk zaten colors arrayinde, onu bozmayalım ama 
+             // Threejs'de material vertexColors kullandığı için burayı manuel güncellemek gerekir.
+             // Performans için şimdilik sadece preset varsa veya renk override edilirse yapıyoruz.
+             // Eğer "audio reactive" renk istiyorsak buraya eklenmeli.
+          }
+          colorsAttribute.setXYZ(i, Math.min(1,r), Math.min(1,g), Math.min(1,b));
       }
     }
 
@@ -478,9 +570,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     }
   });
   
-  // Boyut hesaplama
   let computedSize = Math.max(0.01, 0.06 - (particleSpacing / 50) * 0.05);
-  // Civa için biraz daha büyük tanecik
   if (activePreset === 'mercury') computedSize *= 1.5;
 
   return (
