@@ -46,7 +46,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   const pointsRef = useRef<THREE.Points>(null);
   const { camera, gl } = useThree();
   
-  const isHovered = useRef(false);
   const isRightClicking = useRef(false);
   
   // Audio Refs
@@ -80,10 +79,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
             audioContextRef.current = ctx;
 
             const analyser = ctx.createAnalyser();
-            // FFT Size 256 yaparak daha keskin ve ayrıştırılmış veri alalım
-            // 128 adet frekans bandımız olacak.
             analyser.fftSize = 256; 
-            // Smoothing'i düşürerek "lag" hissini yok edelim, anlık tepki versin.
             analyser.smoothingTimeConstant = 0.5; 
             analyser.minDecibels = -90;
             analyser.maxDecibels = -10;
@@ -127,18 +123,23 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
 
   const spherePositions = useMemo(() => {
     const positions = new Float32Array(particleCount * 3);
-    const vector = new THREE.Vector3();
-    const spherical = new THREE.Spherical();
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // ~2.3999 rad
 
     for (let i = 0; i < particleCount; i++) {
-      spherical.phi = Math.acos( -1 + ( 2 * i ) / particleCount );
-      spherical.theta = Math.sqrt( particleCount * Math.PI ) * spherical.phi;
-      
-      vector.setFromSpherical(spherical).multiplyScalar(SPHERE_RADIUS);
-      
-      positions[i * 3] = vector.x;
-      positions[i * 3 + 1] = vector.y;
-      positions[i * 3 + 2] = vector.z;
+      // Golden Angle Dağılımı:
+      // Bu yöntem, N değiştiğinde indexlerin açısal pozisyonunu (theta) korur,
+      // sadece düşey pozisyonu (y) biraz kaydırır. Böylece "patlama" olmaz.
+      const y = 1 - (i / (particleCount - 1)) * 2; // 1'den -1'e
+      const radius = Math.sqrt(1 - y * y);
+      const theta = goldenAngle * i;
+
+      const x = Math.cos(theta) * radius * SPHERE_RADIUS;
+      const z = Math.sin(theta) * radius * SPHERE_RADIUS;
+      const yPos = y * SPHERE_RADIUS;
+
+      positions[i * 3] = x;
+      positions[i * 3 + 1] = yPos;
+      positions[i * 3 + 2] = z;
     }
     // Küre modunda bounds sabittir
     boundsRef.current = { minX: -SPHERE_RADIUS, maxX: SPHERE_RADIUS };
@@ -149,15 +150,20 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     const current = new Float32Array(particleCount * 3);
     const targets = new Float32Array(particleCount * 3);
     
-    current.set(spherePositions);
+    // Varsayılan olarak küre pozisyonlarını ayarla
     targets.set(spherePositions);
+    current.set(spherePositions);
 
+    // Eğer önceki pozisyonlar varsa, onları koru
     if (previousPositions && previousPositions.current) {
         const prev = previousPositions.current;
         const copyLength = Math.min(prev.length, current.length);
-        for (let i = 0; i < copyLength; i++) {
-            current[i] = prev[i];
-        }
+        
+        // Eskileri kopyala
+        current.set(prev.subarray(0, copyLength), 0);
+
+        // Yeni eklenenler zaten targets (spherePositions) olarak set edildiği için
+        // oldukları yerde (yani hedeflerinde) doğarlar. Hareket etmezler.
     }
 
     return {
@@ -170,13 +176,16 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     };
   }, [particleCount, spherePositions, previousPositions]);
 
-  // --- Event Listeners ---
+  // --- Event Listeners (Sadece Tıklama için) ---
   useEffect(() => {
     const handlePointerDown = (e: PointerEvent) => {
       if (e.button === 2) {
         isRightClicking.current = true;
       }
+      
+      // Eğer etkileşim devre dışıysa (örn: mouse butonlar üzerindeyse) işlemi durdur.
       if (disableMouseRepulsion) return;
+
       if (e.button === 0) { 
         if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
             audioContextRef.current.resume();
@@ -198,19 +207,13 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     };
 
     const handlePointerUp = () => { isRightClicking.current = false; };
-    const handlePointerEnter = () => { isHovered.current = true; };
-    const handlePointerLeave = () => { isHovered.current = false; };
 
     gl.domElement.addEventListener('pointerdown', handlePointerDown);
     gl.domElement.addEventListener('pointerup', handlePointerUp);
-    gl.domElement.addEventListener('pointerenter', handlePointerEnter);
-    gl.domElement.addEventListener('pointerleave', handlePointerLeave);
 
     return () => {
       gl.domElement.removeEventListener('pointerdown', handlePointerDown);
       gl.domElement.removeEventListener('pointerup', handlePointerUp);
-      gl.domElement.removeEventListener('pointerenter', handlePointerEnter);
-      gl.domElement.removeEventListener('pointerleave', handlePointerLeave);
     };
   }, [gl.domElement, simulationData, disableMouseRepulsion, repulsionStrength, particleCount, activePreset]);
 
@@ -227,16 +230,12 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   useEffect(() => {
     const { colors, originalColors } = simulationData;
 
-    // Disco modunda renkler dinamik olduğu için burada statik bir şey yapmaya gerek yok,
-    // ama 'none' modunda ve image yoksa rengin kesinlikle tutması gerek.
     if (activePreset === 'none') {
         if (image && useImageColors) {
             colors.set(originalColors);
         } else {
             const c = new THREE.Color(color);
             for(let i=0; i<particleCount; i++) {
-              // RENK SEÇİMİNİN TUTARLI OLMASI İÇİN ÖNEMLİ:
-              // Sadece görüntülenen renkleri değil, referans renkleri de güncelliyoruz.
               const r = c.r;
               const g = c.g;
               const b = c.b;
@@ -445,13 +444,11 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
         
         let sum = 0;
         const len = dataArrayRef.current.length;
-        // Tüm spektrumun ortalamasını al (Sessizlik kontrolü için)
         for(let k=0; k < len; k++) {
             sum += dataArrayRef.current[k];
         }
         avgVolume = sum / len;
         
-        // Eğer ses çok düşükse audio modunu pasif gibi davranalım ki partiküller dursun
         if (avgVolume < 5) isAudioActive = false;
     } else {
         isAudioActive = false;
@@ -461,23 +458,57 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     const positionsAttribute = pointsRef.current.geometry.attributes.position;
     const colorsAttribute = pointsRef.current.geometry.attributes.color;
     
-    const vector = new THREE.Vector3(state.mouse.x, state.mouse.y, 0.5);
-    vector.unproject(camera);
-    const dir = vector.sub(camera.position).normalize();
-    const distanceToOrigin = -camera.position.z / dir.z;
-    const mouseWorldPos = camera.position.clone().add(dir.multiplyScalar(distanceToOrigin));
+    // --- MOUSE INTERACTION HESAPLAMASI (GELİŞMİŞ RAYCASTING) ---
+    const pointer = state.pointer;
+    const isInsideCanvas = Math.abs(pointer.x) <= 1.05 && Math.abs(pointer.y) <= 1.05;
+
+    let interactionTarget = new THREE.Vector3();
+    let hasInteractionTarget = false;
+
+    if (isInsideCanvas && !disableMouseRepulsion && !isRightClicking.current && repulsionStrength > 0) {
+        state.raycaster.setFromCamera(pointer, camera);
+        const ray = state.raycaster.ray;
+
+        if (!text && !image) {
+            const O = ray.origin;
+            const D = ray.direction;
+            const rSq = SPHERE_RADIUS * SPHERE_RADIUS;
+            const b = 2 * O.dot(D);
+            const c = O.lengthSq() - rSq;
+            const delta = b * b - 4 * c;
+
+            if (delta >= 0) {
+                const sqrtDelta = Math.sqrt(delta);
+                const t1 = (-b - sqrtDelta) / 2;
+                const t2 = (-b + sqrtDelta) / 2;
+                let t = t1 < t2 ? t1 : t2; 
+                if (t < 0) t = t2; 
+                
+                if (t > 0) {
+                    interactionTarget.copy(O).addScaledVector(D, t);
+                    hasInteractionTarget = true;
+                }
+            }
+        }
+
+        if (!hasInteractionTarget) {
+             const t = -ray.origin.z / ray.direction.z;
+             if (t > 0) {
+                 interactionTarget.copy(ray.origin).addScaledVector(ray.direction, t);
+                 hasInteractionTarget = true;
+             }
+        }
+    }
 
     // FİZİK AYARLARI
     let springStrength = 0.05;
     let friction = 0.94;
     
-    // Ses aktifse fiziği sertleştir (snappy response)
     if (isAudioActive) {
-        springStrength = 0.15; // Hedefe çok hızlı git
-        friction = 0.80;       // Hızlı dur (wobble yapmasın)
+        springStrength = 0.15; 
+        friction = 0.80;      
     }
 
-    // Preset Fizik Override
     if (activePreset === 'water') { springStrength = 0.02; friction = 0.96; } 
     else if (activePreset === 'mercury') { springStrength = 0.08; friction = 0.90; } 
     else if (activePreset === 'electric') { springStrength = 0.1; friction = 0.85; }
@@ -487,12 +518,9 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     const repulsionForce = (repulsionStrength / 50.0);
     const time = state.clock.elapsedTime;
     
-    // Bounds (X ekseni genişliği) - Audio Mapping için
     const { minX, maxX } = boundsRef.current;
     const width = maxX - minX || 1;
     const bufferLength = dataArrayRef.current ? dataArrayRef.current.length : 1;
-
-    // Disco Color Temp Helper
     const discoColor = new THREE.Color();
 
     for (let i = 0; i < particleCount; i++) {
@@ -512,67 +540,43 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       let ty = targets[iy];
       let tz = targets[iz];
 
-      // --- SPECTRUM MAPPING (PARALEL EKOLAYZIR HAREKETİ) ---
       let freqValue = 0;
 
       if (isAudioActive && dataArrayRef.current) {
           let binIndex = 0;
           
           if (!text && !image) {
-              // KÜRE MODU: Radyal Eşleme
-              // Partikülün indexini rastgele ama tutarlı bir frekansa bağla
               binIndex = i % (bufferLength / 2); 
           } else {
-              // YAZI/RESİM MODU: Lineer Eşleme (X Ekseni = Frekans)
               let normalizedX = (tx - minX) / width;
-              
-              // CLAMP işlemi: Bound dışına taşmaları düzeltelim
               if (normalizedX < 0) normalizedX = 0;
               if (normalizedX > 1) normalizedX = 1;
-
-              // STRETCH İŞLEMİ:
-              // Ses spektrumunun genellikle sadece ilk %40'ı (Bass ve Mid) doludur.
-              // Eğer tüm spektruma map edersek (0-128), sağ taraf (Highs) boş kalır ve şeklin sağ yarısı oynamaz.
-              // Bu yüzden 0-1 aralığını spektrumun 0-0.4 aralığına map ediyoruz.
-              // Böylece tüm şekil, aktif olan ses frekanslarıyla hareket eder.
-              const activeSpectrumRatio = 0.4; // Spektrumun ilk %40'ını kullan
+              const activeSpectrumRatio = 0.4; 
               const maxActiveBin = Math.floor(bufferLength * activeSpectrumRatio);
-              
               binIndex = Math.floor(normalizedX * maxActiveBin);
-              
               if (binIndex >= bufferLength) binIndex = bufferLength - 1;
           }
 
-          // Ses verisi (0-255 arası) -> 0.0-1.0
           const rawVal = dataArrayRef.current[binIndex] / 255.0;
           freqValue = rawVal;
-          
-          // Z ekseninde (derinlik) patlama yap
-          // Bass frekansları (düşük indeksler) daha güçlü vursun
           const isBass = binIndex < bufferLength * 0.1;
           const boost = isBass ? 1.5 : 1.0; 
           
           if (!text && !image) {
-              // Küre: Yarıçapı artır
               const spike = rawVal * 3.0 * boost;
               const len = Math.sqrt(tx*tx + ty*ty + tz*tz) || 1;
               tx += (tx / len) * spike;
               ty += (ty / len) * spike;
               tz += (tz / len) * spike;
           } else {
-              // Yazı/Resim: Z ekseninde hareket
-              // Sadece Z ekseninde değil, hafifçe Y ekseninde de zıplatmak daha organik durur
               tz += rawVal * 4.0 * boost;
-              // ty += rawVal * 0.5; // Opsiyonel: Yukarı zıplama
           }
       }
 
-      // Hedefe git (Yay Fiziği)
       vx += (tx - px) * springStrength;
       vy += (ty - py) * springStrength;
       vz += (tz - pz) * springStrength;
 
-      // PRESET MOTION (Sessizken veya ses varken de çalışabilir)
       if (activePreset === 'fire') {
          vy += 0.005 + Math.random() * 0.005; 
          vx += (Math.random() - 0.5) * 0.01;
@@ -589,37 +593,38 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
          }
       }
       else if (activePreset === 'disco') {
-         // Hafif dans eden hareket
          vx += Math.sin(time * 3 + py * 0.5) * 0.001;
          vy += Math.cos(time * 2 + px * 0.5) * 0.001;
       }
 
-      // Mouse Etkileşimi
-      if (isHovered.current && !disableMouseRepulsion && !isRightClicking.current && repulsionStrength > 0) {
-        const dx = px - mouseWorldPos.x;
-        const dy = py - mouseWorldPos.y;
-        const dz = pz - mouseWorldPos.z;
+      if (hasInteractionTarget) {
+        const dx = px - interactionTarget.x;
+        const dy = py - interactionTarget.y;
+        const dz = pz - interactionTarget.z;
+
         const distSq = dx*dx + dy*dy + dz*dz;
 
         if (distSq < dynamicRepulsionRadius * dynamicRepulsionRadius) {
             const dist = Math.sqrt(distSq);
             let force = (1 - dist / dynamicRepulsionRadius) * repulsionForce;
             
-            if (activePreset === 'electric') {
-                force *= 2.0;
-                vx += (dx / dist) * force + (Math.random()-0.5) * force;
-                vy += (dy / dist) * force + (Math.random()-0.5) * force;
-                vz += (dz / dist) * force;
-            } else if (activePreset === 'mercury') {
-                 force *= 0.5;
-                 vx += (dx / dist) * force;
-                 vy += (dy / dist) * force;
-                 vz += (dz / dist) * force;
+            if (activePreset === 'electric') force *= 2.0;
+            else if (activePreset === 'mercury') force *= 0.5;
+
+            let nx, ny, nz;
+            if (dist > 0.0001) {
+                nx = dx / dist;
+                ny = dy / dist;
+                nz = dz / dist;
             } else {
-                 vx += (dx / dist) * force;
-                 vy += (dy / dist) * force;
-                 vz += (dz / dist) * force;
+                nx = (Math.random() - 0.5);
+                ny = (Math.random() - 0.5);
+                nz = (Math.random() - 0.5);
             }
+
+            vx += nx * force;
+            vy += ny * force;
+            vz += nz * force;
         }
       }
 
@@ -637,29 +642,23 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
 
       positionsAttribute.setXYZ(i, current[ix], current[iy], current[iz]);
 
-      // COLOR UPDATE (SES ETKİLEŞİMİ veya PRESET)
       if (isAudioActive || activePreset !== 'none') {
           let r=1, g=1, b=1;
-          
-          // Orijinal renk (Resim veya Color Picker)
           let baseR = 1, baseG = 1, baseB = 1;
           
           if (activePreset === 'none') {
-              // 'none' modunda, orijinal renkleri baz al (Bu artık color picker ile güncel)
               baseR = simulationData.originalColors[ix] || 1;
               baseG = simulationData.originalColors[iy] || 1;
               baseB = simulationData.originalColors[iz] || 1;
           }
 
           if (activePreset === 'none') {
-             // Ses görselleştirme: Sadece parlaklık ekle
              const intensity = freqValue * 1.5; 
              r = baseR + intensity * 0.6;
              g = baseG + intensity * 0.6;
              b = baseB + intensity * 0.6;
           } 
           else {
-              // Preset renkleri + Audio Beat
               const beatFlash = freqValue * 0.8;
               
               if (activePreset === 'electric') {
@@ -686,12 +685,8 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                   b = 0.7 + shine * 0.3 + beatFlash;
               }
               else if (activePreset === 'disco') {
-                  // Gökkuşağı dalgası
-                  // Pozisyon ve zamana göre HSL hesapla
                   const hue = (time * 0.2 + px * 0.05 + py * 0.05) % 1.0;
                   discoColor.setHSL(hue, 1.0, 0.5);
-                  
-                  // Beat eklentisi
                   r = discoColor.r + beatFlash;
                   g = discoColor.g + beatFlash;
                   b = discoColor.b + beatFlash;

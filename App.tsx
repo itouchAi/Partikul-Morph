@@ -53,6 +53,9 @@ const App: React.FC = () => {
 
   const handleColorChange = (color: string) => {
     setParticleColor(color);
+    // Renk seçildiğinde efekt açıksa kapat, böylece saf renk görünür
+    setActivePreset('none'); 
+    
     if (imageSource) {
       setUseImageColors(false);
     }

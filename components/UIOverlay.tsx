@@ -148,8 +148,14 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   };
 
   const handleCountChange = (val: number) => {
+    // onInteractionStart burada yetmez, pointerDown olayı canvas'a gitmeden durmalı.
     const clamped = Math.max(22000, Math.min(30000, val));
     onParticleCountChange(clamped);
+  };
+
+  // Ortak stopPropagation fonksiyonu
+  const stopProp = (e: React.PointerEvent | React.MouseEvent) => {
+    e.stopPropagation();
   };
 
   return (
@@ -171,7 +177,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
       {/* SOL TARAFA PRESET MENÜSÜ */}
       <div className="absolute left-6 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-4"
-           onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>
+           onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd} onPointerDown={stopProp}>
           <button onClick={() => onPresetChange(activePreset === 'electric' ? 'none' : 'electric')} className={`preset-btn preset-electric w-12 h-12 border border-white/20 bg-black/50 backdrop-blur-md rounded flex items-center justify-center group ${activePreset === 'electric' ? 'active' : ''}`} title="Elektrik Efekti"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-cyan-400"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></button>
           <button onClick={() => onPresetChange(activePreset === 'fire' ? 'none' : 'fire')} className={`preset-btn preset-fire w-12 h-12 border border-white/20 bg-black/50 backdrop-blur-md rounded flex items-center justify-center group ${activePreset === 'fire' ? 'active' : ''}`} title="Ateş Efekti"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.1.2-2.2.5-3 .5.7 1 1.3 2 1.5z"></path></svg></button>
           <button onClick={() => onPresetChange(activePreset === 'water' ? 'none' : 'water')} className={`preset-btn preset-water w-12 h-12 border border-white/20 bg-black/50 backdrop-blur-md rounded flex items-center justify-center group ${activePreset === 'water' ? 'active' : ''}`} title="Su Efekti"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg></button>
@@ -188,14 +194,38 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
       </div>
 
       {/* Sağ Üst Köşe: Ayarlar (Sabit) */}
-      <div className="absolute top-6 right-6 z-30">
+      <div className="absolute top-6 right-6 z-30" onPointerDown={stopProp}>
         <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border border-white/20 text-white ${isSettingsOpen ? 'bg-white/20 rotate-90' : 'bg-white/5 hover:bg-white/10'}`} title="Ayarlar"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
         {isSettingsOpen && (
           <div className="absolute top-12 right-0 w-64 bg-[#111]/90 backdrop-blur-xl border border-white/10 rounded-xl p-5 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>
             <h4 className="text-white/80 text-xs font-mono uppercase tracking-widest mb-4 border-b border-white/10 pb-2">Konfigürasyon</h4>
             <div className="mb-5"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>İmleç Gücü</span><span>{repulsionStrength}%</span></div><input type="range" min="0" max="100" value={repulsionStrength} onChange={(e) => onRepulsionChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
             <div className="mb-5"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>İmleç Çapı</span><span>{repulsionRadius}%</span></div><input type="range" min="0" max="100" value={repulsionRadius} onChange={(e) => onRadiusChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
-            <div className="mb-5"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>Partikül Sayısı</span></div><div className="flex items-center gap-2"><button onClick={() => handleCountChange(particleCount - 2000)} className="w-8 h-8 rounded bg-white/10 hover:bg-white/20 text-white flex items-center justify-center border border-white/10">-</button><input type="number" min="22000" max="30000" step="2000" value={particleCount} onChange={(e) => handleCountChange(parseInt(e.target.value) || 22000)} className="flex-1 h-8 bg-black/50 border border-white/10 rounded text-center text-white text-xs font-mono focus:outline-none focus:border-white/40"/><button onClick={() => handleCountChange(particleCount + 2000)} className="w-8 h-8 rounded bg-white/10 hover:bg-white/20 text-white flex items-center justify-center border border-white/10">+</button></div><div className="text-[10px] text-gray-600 mt-1 text-center">Max: 30,000</div></div>
+            
+            <div className="mb-5">
+              <div className="flex justify-between text-xs text-gray-400 mb-1"><span>Partikül Sayısı</span></div>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={() => handleCountChange(particleCount - 2000)} 
+                  onPointerDown={stopProp} 
+                  onMouseEnter={onInteractionStart}
+                  onMouseLeave={onInteractionEnd}
+                  className="w-8 h-8 rounded bg-white/10 hover:bg-white/20 text-white flex items-center justify-center border border-white/10"
+                >-</button>
+                <input type="number" min="22000" max="30000" step="2000" value={particleCount} onChange={(e) => handleCountChange(parseInt(e.target.value) || 22000)} className="flex-1 h-8 bg-black/50 border border-white/10 rounded text-center text-white text-xs font-mono focus:outline-none focus:border-white/40"/>
+                <button 
+                  type="button"
+                  onClick={() => handleCountChange(particleCount + 2000)} 
+                  onPointerDown={stopProp}
+                  onMouseEnter={onInteractionStart}
+                  onMouseLeave={onInteractionEnd}
+                  className="w-8 h-8 rounded bg-white/10 hover:bg-white/20 text-white flex items-center justify-center border border-white/10"
+                >+</button>
+              </div>
+              <div className="text-[10px] text-gray-600 mt-1 text-center">Max: 30,000</div>
+            </div>
+
             <div className="mb-2"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>Boşluk Oranı</span><span>{particleSpacing}</span></div><input type="range" min="0" max="50" value={particleSpacing} onChange={(e) => onSpacingChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
           </div>
         )}
@@ -203,7 +233,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
       {/* MODAL: Resim Seçimi */}
       {showImageModal && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onPointerDown={stopProp}>
           <div className="bg-[#111] border border-white/10 p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center">
             <h3 className="text-white text-lg font-light mb-4">Görsel İşleme Seçeneği</h3>
             <p className="text-gray-400 text-sm mb-6">Partiküller görseli oluştururken hangi renkleri kullansın?</p>
@@ -218,7 +248,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
       {/* MODAL: Ses Seçimi */}
       {showAudioModal && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onPointerDown={stopProp}>
           <div className="bg-[#111] border border-white/10 p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center">
             <h3 className="text-white text-lg font-light mb-4">Ses Kaynağı Seçimi</h3>
             <p className="text-gray-400 text-sm mb-6">Ekolayzır efektini hangi kaynakla tetiklemek istersiniz?</p>
@@ -239,7 +269,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
       
       {/* Sağ Orta: Derinlik Slider */}
       {hasImage && (
-        <div className="absolute right-6 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-4 animate-in fade-in slide-in-from-right-10 duration-500">
+        <div className="absolute right-6 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-4 animate-in fade-in slide-in-from-right-10 duration-500" onPointerDown={stopProp}>
             <div className="bg-white/5 backdrop-blur-md border border-white/10 p-4 rounded-full flex flex-col items-center shadow-xl">
                 <div className="text-white/70 text-[10px] font-mono tracking-widest mb-4 rotate-180" style={{writingMode: 'vertical-rl'}}>DERİNLİK</div>
                 <input type="range" min="0" max="10" step="0.1" value={depthIntensity} onChange={(e) => onDepthChange(parseFloat(e.target.value))} className="h-32 w-2 appearance-none bg-white/20 rounded-full outline-none vertical-slider cursor-pointer" style={{ writingMode: 'bt-lr', WebkitAppearance: 'slider-vertical' } as any} onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd} />
@@ -250,7 +280,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
       {/* Orta Alt: Kontroller */}
       <div className="absolute bottom-10 left-0 w-full flex justify-center items-center pointer-events-none z-10 px-4">
-        <div className="pointer-events-auto w-full max-w-lg relative group flex gap-2 items-center">
+        <div className="pointer-events-auto w-full max-w-lg relative group flex gap-2 items-center" onPointerDown={stopProp}>
           
           {/* Renk Paleti Popup */}
           {isPaletteOpen && (

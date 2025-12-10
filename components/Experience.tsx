@@ -57,15 +57,17 @@ export const Experience: React.FC<ExperienceProps> = ({
       <color attach="background" args={['#000000']} />
       
       <OrbitControls 
+        makeDefault
         ref={controlsRef}
         enablePan={false} 
+        enableZoom={true}
         enableDamping 
         dampingFactor={0.05} 
         minDistance={2} 
         maxDistance={50}
         rotateSpeed={0.5}
         mouseButtons={{
-          LEFT: undefined as unknown as THREE.MOUSE,
+          LEFT: THREE.MOUSE.PAN, // Pan kapalı olduğu için sol tık kamerayı etkilemez (custom event için boşta kalır)
           MIDDLE: THREE.MOUSE.DOLLY,
           RIGHT: THREE.MOUSE.ROTATE
         }}
