@@ -284,7 +284,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           </button>
 
           {/* Text Input */}
-          <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleKeyDown} onFocus={() => onInteractionStart()} onBlur={() => onInteractionEnd()} placeholder="Metin yazın..." className="flex-1 bg-white/10 backdrop-blur-md border border-white/20 text-white placeholder-gray-400 rounded-full px-6 py-4 outline-none focus:bg-white/20 focus:border-white/50 transition-all duration-300 shadow-lg text-center font-light tracking-wide text-lg" />
+          <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleKeyDown} onFocus={() => onInteractionStart()} onBlur={() => onInteractionEnd()} placeholder="Metin yazın (Türkçe destekli)..." className="flex-1 bg-white/10 backdrop-blur-md border border-white/20 text-white placeholder-gray-400 rounded-full px-6 py-4 outline-none focus:bg-white/20 focus:border-white/50 transition-all duration-300 shadow-lg text-center font-light tracking-wide text-lg" />
           
           <div className="flex items-center gap-2">
             {/* Orijinal Renk Reset (Sadece Resimde) */}
