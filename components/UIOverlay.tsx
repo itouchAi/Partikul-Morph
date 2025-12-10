@@ -156,7 +156,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   };
 
   const handleCountChange = (val: number) => {
-    const clamped = Math.max(22000, Math.min(30000, val));
+    const clamped = Math.max(22000, Math.min(50000, val));
     onParticleCountChange(clamped);
   };
 
@@ -302,7 +302,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                   onMouseLeave={onInteractionEnd}
                   className="w-8 h-8 rounded bg-white/10 hover:bg-white/20 text-white flex items-center justify-center border border-white/10"
                 >-</button>
-                <input type="number" min="22000" max="30000" step="2000" value={particleCount} onChange={(e) => handleCountChange(parseInt(e.target.value) || 22000)} className="flex-1 h-8 bg-black/50 border border-white/10 rounded text-center text-white text-xs font-mono focus:outline-none focus:border-white/40"/>
+                <input type="number" min="22000" max="50000" step="2000" value={particleCount} onChange={(e) => handleCountChange(parseInt(e.target.value) || 22000)} className="flex-1 h-8 bg-black/50 border border-white/10 rounded text-center text-white text-xs font-mono focus:outline-none focus:border-white/40"/>
                 <button 
                   type="button"
                   onClick={() => handleCountChange(particleCount + 2000)} 
@@ -312,7 +312,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                   className="w-8 h-8 rounded bg-white/10 hover:bg-white/20 text-white flex items-center justify-center border border-white/10"
                 >+</button>
               </div>
-              <div className="text-[10px] text-gray-600 mt-1 text-center">Max: 30,000</div>
+              <div className="text-[10px] text-gray-600 mt-1 text-center">Max: 50,000</div>
             </div>
 
             <div className="mb-2"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>Boşluk Oranı</span><span>{particleSpacing}</span></div><input type="range" min="0" max="50" value={particleSpacing} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onSpacingChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>

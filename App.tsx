@@ -23,7 +23,7 @@ const App: React.FC = () => {
   // Ayarlar
   const [repulsionStrength, setRepulsionStrength] = useState<number>(50);
   const [repulsionRadius, setRepulsionRadius] = useState<number>(50);
-  const [particleCount, setParticleCount] = useState<number>(30000);
+  const [particleCount, setParticleCount] = useState<number>(40000); // Varsayılan artırıldı
   const [particleSpacing, setParticleSpacing] = useState<number>(0);
 
   const [isUIInteraction, setIsUIInteraction] = useState<boolean>(false);
@@ -51,9 +51,9 @@ const App: React.FC = () => {
     setUseImageColors(useOriginalColors);
     setCurrentText('');
     
-    // Eğer çizimden geliyorsa (isDrawing true ise), otomatik derinlik ver
+    // Eğer çizimden geliyorsa (isDrawing true ise), hafif bir derinlik ver
     if (isDrawing) {
-        setDepthIntensity(2.0); // Otomatik derinlik efekti
+        setDepthIntensity(1.0); // %10 ile başla (Eskiden 3.0/30% idi, çok sertti)
         setIsDrawing(false);
     } else {
         setDepthIntensity(0);
@@ -99,7 +99,7 @@ const App: React.FC = () => {
     setAudioUrl(null);
     setRepulsionStrength(50);
     setRepulsionRadius(50);
-    setParticleCount(30000);
+    setParticleCount(40000); // Resetlenince de yüksek sayıya dön
     setParticleSpacing(0);
     setIsDrawing(false);
   };

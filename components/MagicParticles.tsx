@@ -243,17 +243,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     }
   }, [color, useImageColors, image, simulationData, particleCount, activePreset]);
 
-  // --- Depth ---
-  useEffect(() => {
-    if (image) {
-        const targets = simulationData.targets;
-        const zOffsets = simulationData.zOffsets;
-        for(let i=0; i < particleCount; i++) {
-            targets[i * 3 + 2] = zOffsets[i] * depthIntensity;
-        }
-    }
-  }, [depthIntensity, image, simulationData, particleCount]);
-
   // --- Text Mesh Generation ---
   useEffect(() => {
     if (image || isProcessing) return;
@@ -372,7 +361,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                     validPixels.push({
                         x: (x / w) - 0.5, y: 0.5 - (y / h), 
                         r: data[index]/255, g: data[index+1]/255, b: data[index+2]/255,
-                        // Luminance artık Z için kullanılmayacak, sadece renk referansı
                         luminance: (0.2126 * data[index] + 0.7152 * data[index+1] + 0.0722 * data[index+2]) / 255
                     });
                 }
@@ -411,13 +399,15 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
             newTargets[i * 3] = finalX; 
             newTargets[i * 3 + 1] = finalY;
 
-            // ÖNEMLİ DEĞİŞİKLİK: Z DEĞERİNİ RASTGELE DAĞITIYORUZ
-            // Böylece şekil sadece bir düzlem değil, hacimli bir obje (extruded) gibi görünür.
-            // [-0.5, 0.5] aralığında rastgele bir değer. 
-            // depthIntensity ile çarpılınca (örn: 2.0), toplam kalınlık artar.
-            newZOffsets[i] = (Math.random() - 0.5); 
+            // --- YENİ Z-OFSET ALGORİTMASI ---
+            const luminanceDepth = (pixel.luminance - 0.5); 
+            // Daha fazla hacim için rastgeleliği artırdık (0.2 -> 0.5)
+            // Bu sayede pikseller sadece bir yüzeyde değil, bir bulut hacmi içinde dağılır.
+            const randomDepth = (Math.random() - 0.5) * 0.5; 
+            newZOffsets[i] = luminanceDepth + randomDepth; 
             
-            newTargets[i * 3 + 2] = newZOffsets[i] * depthIntensity;
+            // Başlangıçta 0'da dursunlar
+            newTargets[i * 3 + 2] = 0; 
             
             newOriginalColors[i * 3] = pixel.r; newOriginalColors[i * 3 + 1] = pixel.g; newOriginalColors[i * 3 + 2] = pixel.b;
             if (useImageColors) { newColors[i * 3] = pixel.r; newColors[i * 3 + 1] = pixel.g; newColors[i * 3 + 2] = pixel.b; } 
@@ -442,7 +432,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     
     img.src = image;
     
-  }, [image, simulationData, particleCount, color, useImageColors, depthIntensity]);
+  }, [image, simulationData, particleCount, color, useImageColors]); 
 
   // --- Animation Loop ---
   useFrame((state) => {
@@ -468,7 +458,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
         isAudioActive = false;
     }
 
-    const { current, targets, velocities } = simulationData;
+    const { current, targets, velocities, zOffsets } = simulationData;
     const positionsAttribute = pointsRef.current.geometry.attributes.position;
     const colorsAttribute = pointsRef.current.geometry.attributes.color;
     
@@ -518,6 +508,12 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     let springStrength = 0.05;
     let friction = 0.94;
     
+    // Resim modundaysak ve etkileşim konfigürasyonunu iyileştirmek için yaylanmayı azalt
+    // Bu, partiküllerin fare itişine daha uzun süre tepki vermesini sağlar (hemen geri dönmezler)
+    if (image) {
+        springStrength = 0.03; 
+    }
+    
     if (isAudioActive) {
         springStrength = 0.15; 
         friction = 0.80;      
@@ -552,7 +548,11 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       
       let tx = targets[ix];
       let ty = targets[iy];
+      
       let tz = targets[iz];
+      if (image) {
+          tz += zOffsets[i] * depthIntensity;
+      }
 
       let freqValue = 0;
 
@@ -645,6 +645,11 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       vx *= friction;
       vy *= friction;
       vz *= friction;
+      
+      // NaN KORUMASI (Donmayı önler)
+      if (isNaN(vx)) vx = 0;
+      if (isNaN(vy)) vy = 0;
+      if (isNaN(vz)) vz = 0;
 
       current[ix] += vx;
       current[iy] += vy;
