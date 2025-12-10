@@ -4,6 +4,10 @@ import { OrbitControls } from '@react-three/drei';
 import { MagicParticles } from './MagicParticles';
 import * as THREE from 'three';
 
+// App.tsx'den gelen PresetType'ı kullanmak için string olarak tanımlayabiliriz veya import edebiliriz.
+// Basitlik adına string literal union kullanıyoruz.
+type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury';
+
 interface ExperienceProps {
   text: string;
   image: string | null;
@@ -15,6 +19,7 @@ interface ExperienceProps {
   repulsionRadius: number;
   particleCount: number;
   particleSpacing: number;
+  activePreset: PresetType;
 }
 
 export const Experience: React.FC<ExperienceProps> = ({ 
@@ -27,11 +32,11 @@ export const Experience: React.FC<ExperienceProps> = ({
   repulsionStrength,
   repulsionRadius,
   particleCount,
-  particleSpacing
+  particleSpacing,
+  activePreset
 }) => {
   const controlsRef = useRef<any>(null);
   
-  // Partikül sayısı değiştiğinde pozisyonları kaybetmemek için referans
   const previousPositions = useRef<Float32Array | null>(null);
 
   useEffect(() => {
@@ -78,6 +83,7 @@ export const Experience: React.FC<ExperienceProps> = ({
         particleCount={particleCount}
         particleSpacing={particleSpacing}
         previousPositions={previousPositions}
+        activePreset={activePreset}
       />
     </Canvas>
   );

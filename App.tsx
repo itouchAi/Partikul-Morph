@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Experience } from './components/Experience';
 import { UIOverlay } from './components/UIOverlay';
+
+export type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury';
 
 const App: React.FC = () => {
   const [currentText, setCurrentText] = useState<string>('');
@@ -9,13 +11,27 @@ const App: React.FC = () => {
   const [useImageColors, setUseImageColors] = useState<boolean>(false);
   const [depthIntensity, setDepthIntensity] = useState<number>(0); 
   
-  // Yeni Ayarlar
-  const [repulsionStrength, setRepulsionStrength] = useState<number>(50); // 0-100 (Güç)
-  const [repulsionRadius, setRepulsionRadius] = useState<number>(50); // 0-100 (Çap/Alan)
-  const [particleCount, setParticleCount] = useState<number>(30000); // 22000 - 30000
-  const [particleSpacing, setParticleSpacing] = useState<number>(0); // 0-50
+  // Efekt Presets
+  const [activePreset, setActivePreset] = useState<PresetType>('none');
+
+  // Ayarlar
+  const [repulsionStrength, setRepulsionStrength] = useState<number>(50);
+  const [repulsionRadius, setRepulsionRadius] = useState<number>(50);
+  const [particleCount, setParticleCount] = useState<number>(30000);
+  const [particleSpacing, setParticleSpacing] = useState<number>(0);
 
   const [isUIInteraction, setIsUIInteraction] = useState<boolean>(false);
+
+  // ESC Tuşu ile Efekti İptal Etme
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActivePreset('none');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const handleTextSubmit = (text: string) => {
     setCurrentText(text);
@@ -57,6 +73,7 @@ const App: React.FC = () => {
         repulsionRadius={repulsionRadius}
         particleCount={particleCount}
         particleSpacing={particleSpacing}
+        activePreset={activePreset}
       />
       
       {/* Kullanıcı Arayüzü */}
@@ -72,7 +89,6 @@ const App: React.FC = () => {
         hasImage={!!imageSource}
         depthIntensity={depthIntensity}
         onDepthChange={setDepthIntensity}
-        // Yeni Ayarlar
         repulsionStrength={repulsionStrength}
         onRepulsionChange={setRepulsionStrength}
         repulsionRadius={repulsionRadius}
@@ -81,6 +97,8 @@ const App: React.FC = () => {
         onParticleCountChange={setParticleCount}
         particleSpacing={particleSpacing}
         onSpacingChange={setParticleSpacing}
+        activePreset={activePreset}
+        onPresetChange={setActivePreset}
       />
     </div>
   );
