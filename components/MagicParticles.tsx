@@ -55,9 +55,12 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   const audioSourceRef = useRef<MediaElementAudioSourceNode | MediaStreamAudioSourceNode | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
 
+  // Sahne sınırlarını hesaplamak için (X ekseni mapping için gerekli)
+  const boundsRef = useRef<{minX: number, maxX: number}>({ minX: -5, maxX: 5 });
+
   // --- Audio Setup ---
   useEffect(() => {
-    // Önceki sesleri temizle
+    // Cleanup
     if (audioContextRef.current) {
         audioContextRef.current.close();
         audioContextRef.current = null;
@@ -76,7 +79,13 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
             audioContextRef.current = ctx;
 
             const analyser = ctx.createAnalyser();
-            analyser.fftSize = 64; // Düşük tutarak performansı koruyalım
+            // FFT Size 256 yaparak daha keskin ve ayrıştırılmış veri alalım
+            // 128 adet frekans bandımız olacak.
+            analyser.fftSize = 256; 
+            // Smoothing'i düşürerek "lag" hissini yok edelim, anlık tepki versin.
+            analyser.smoothingTimeConstant = 0.5; 
+            analyser.minDecibels = -90;
+            analyser.maxDecibels = -10;
             analyserRef.current = analyser;
 
             const bufferLength = analyser.frequencyBinCount;
@@ -86,14 +95,14 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                 const audioEl = new Audio(audioUrl);
                 audioEl.crossOrigin = "anonymous";
                 audioEl.loop = true;
-                audioEl.play().catch(e => console.warn("Otomatik oynatma engellendi, kullanıcı etkileşimi gerekebilir.", e));
+                audioEl.play().catch(e => console.warn("Otomatik oynatma engellendi.", e));
                 
                 audioElementRef.current = audioEl;
                 const source = ctx.createMediaElementSource(audioEl);
                 audioSourceRef.current = source;
                 
                 source.connect(analyser);
-                analyser.connect(ctx.destination); // Hoparlöre ver
+                analyser.connect(ctx.destination);
             } 
             else if (audioMode === 'mic') {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -101,7 +110,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                 audioSourceRef.current = source;
                 
                 source.connect(analyser);
-                // Mikrofonu destination'a bağlama (feedback loop olur)
             }
         } catch (err) {
             console.error("Ses başlatma hatası:", err);
@@ -131,6 +139,8 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       positions[i * 3 + 1] = vector.y;
       positions[i * 3 + 2] = vector.z;
     }
+    // Küre modunda bounds sabittir
+    boundsRef.current = { minX: -SPHERE_RADIUS, maxX: SPHERE_RADIUS };
     return positions;
   }, [particleCount]);
 
@@ -167,7 +177,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       }
       if (disableMouseRepulsion) return;
       if (e.button === 0) { 
-        // Audio Context resume (tarayıcı politikası için)
         if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
             audioContextRef.current.resume();
         }
@@ -208,6 +217,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     if (!text && !image) {
         simulationData.targets.set(spherePositions);
         simulationData.zOffsets.fill(0);
+        boundsRef.current = { minX: -SPHERE_RADIUS, maxX: SPHERE_RADIUS };
     }
   }, [text, image, spherePositions, simulationData]);
 
@@ -265,11 +275,18 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       const yMid = -0.5 * (bbox.max.y - bbox.min.y);
       const zMid = -0.5 * (bbox.max.z - bbox.min.z);
       geometry.translate(xMid, yMid, zMid);
+      
+      // Bounds hesapla
+      boundsRef.current = { minX: bbox.min.x + xMid, maxX: bbox.max.x + xMid };
 
       const maxDim = Math.max(bbox.max.x - bbox.min.x, bbox.max.y - bbox.min.y);
       const targetSize = SPHERE_RADIUS * 2.2; 
       const scaleFactor = targetSize / (maxDim || 1);
       geometry.scale(scaleFactor, scaleFactor, scaleFactor);
+      
+      // Scale sonrası bounds güncelle
+      boundsRef.current.minX *= scaleFactor;
+      boundsRef.current.maxX *= scaleFactor;
 
       if (geometry.index) geometry.toNonIndexed();
       const posAttribute = geometry.attributes.position;
@@ -360,24 +377,39 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
         if (validPixels.length === 0) return;
         const aspect = w / h;
         const targetScale = SPHERE_RADIUS * 2.0; 
+        
         const newTargets = new Float32Array(particleCount * 3);
         const newColors = new Float32Array(particleCount * 3);
         const newOriginalColors = new Float32Array(particleCount * 3);
         const newZOffsets = new Float32Array(particleCount);
         const defaultColorRGB = new THREE.Color(color);
+        
+        let minX = Infinity, maxX = -Infinity;
 
         for(let i = 0; i < particleCount; i++) {
             const pixel = validPixels[Math.floor(Math.random() * validPixels.length)];
             const pX = pixel.x * targetScale;
             const pY = pixel.y * targetScale;
-            if (aspect > 1) { newTargets[i * 3] = pX * aspect; newTargets[i * 3 + 1] = pY; } 
-            else { newTargets[i * 3] = pX; newTargets[i * 3 + 1] = pY / aspect; }
+            
+            let finalX = 0, finalY = 0;
+            if (aspect > 1) { finalX = pX * aspect; finalY = pY; } 
+            else { finalX = pX; finalY = pY / aspect; }
+            
+            if (finalX < minX) minX = finalX;
+            if (finalX > maxX) maxX = finalX;
+
+            newTargets[i * 3] = finalX; 
+            newTargets[i * 3 + 1] = finalY;
+
             newZOffsets[i] = (pixel.luminance - 0.5); 
             newTargets[i * 3 + 2] = newZOffsets[i] * depthIntensity;
             newOriginalColors[i * 3] = pixel.r; newOriginalColors[i * 3 + 1] = pixel.g; newOriginalColors[i * 3 + 2] = pixel.b;
             if (useImageColors) { newColors[i * 3] = pixel.r; newColors[i * 3 + 1] = pixel.g; newColors[i * 3 + 2] = pixel.b; } 
             else { newColors[i * 3] = defaultColorRGB.r; newColors[i * 3 + 1] = defaultColorRGB.g; newColors[i * 3 + 2] = defaultColorRGB.b; }
         }
+        
+        boundsRef.current = { minX, maxX };
+
         simulationData.targets.set(newTargets);
         simulationData.colors.set(newColors);
         simulationData.zOffsets.set(newZOffsets);
@@ -390,24 +422,28 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   useFrame((state) => {
     if (!pointsRef.current) return;
 
-    // AUDIO DATA FETCHING
-    let bass = 0;
-    let treble = 0;
-    
-    if (analyserRef.current && dataArrayRef.current) {
-        analyserRef.current.getByteFrequencyData(dataArrayRef.current);
-        // Bass: 0-10 arası binler (kabaca)
-        let b = 0;
-        for(let k=0; k<10; k++) b += dataArrayRef.current[k];
-        bass = b / 10 / 255.0; // 0.0 - 1.0 arası
+    // AUDIO VERİSİNİ AL
+    let isAudioActive = audioMode !== 'none';
+    let avgVolume = 0;
 
-        // Treble: 20-32 arası binler
-        let t = 0;
-        for(let k=20; k<32; k++) t += dataArrayRef.current[k];
-        treble = t / 12 / 255.0;
+    if (isAudioActive && analyserRef.current && dataArrayRef.current) {
+        analyserRef.current.getByteFrequencyData(dataArrayRef.current);
+        
+        let sum = 0;
+        const len = dataArrayRef.current.length;
+        // Tüm spektrumun ortalamasını al (Sessizlik kontrolü için)
+        for(let k=0; k < len; k++) {
+            sum += dataArrayRef.current[k];
+        }
+        avgVolume = sum / len;
+        
+        // Eğer ses çok düşükse audio modunu pasif gibi davranalım ki partiküller dursun
+        if (avgVolume < 5) isAudioActive = false;
+    } else {
+        isAudioActive = false;
     }
 
-    const { current, targets, velocities, colors } = simulationData;
+    const { current, targets, velocities } = simulationData;
     const positionsAttribute = pointsRef.current.geometry.attributes.position;
     const colorsAttribute = pointsRef.current.geometry.attributes.color;
     
@@ -417,9 +453,17 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     const distanceToOrigin = -camera.position.z / dir.z;
     const mouseWorldPos = camera.position.clone().add(dir.multiplyScalar(distanceToOrigin));
 
+    // FİZİK AYARLARI
     let springStrength = 0.05;
     let friction = 0.94;
     
+    // Ses aktifse fiziği sertleştir (snappy response)
+    if (isAudioActive) {
+        springStrength = 0.15; // Hedefe çok hızlı git
+        friction = 0.80;       // Hızlı dur (wobble yapmasın)
+    }
+
+    // Preset Fizik Override
     if (activePreset === 'water') { springStrength = 0.02; friction = 0.96; } 
     else if (activePreset === 'mercury') { springStrength = 0.08; friction = 0.90; } 
     else if (activePreset === 'electric') { springStrength = 0.1; friction = 0.85; }
@@ -427,9 +471,11 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     const dynamicRepulsionRadius = 1.0 + (repulsionRadius / 100) * 5.0; 
     const repulsionForce = (repulsionStrength / 50.0);
     const time = state.clock.elapsedTime;
-
-    // AUDIO PULSE (Merkezden dışa doğru veya şekil büyümesi)
-    const pulseFactor = 1.0 + bass * 0.5; // Bass vurduğunda hedefi %50 büyüt
+    
+    // Bounds (X ekseni genişliği) - Audio Mapping için
+    const { minX, maxX } = boundsRef.current;
+    const width = maxX - minX || 1;
+    const bufferLength = dataArrayRef.current ? dataArrayRef.current.length : 1;
 
     for (let i = 0; i < particleCount; i++) {
       const ix = i * 3;
@@ -444,23 +490,64 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       let vy = velocities[iy];
       let vz = velocities[iz];
       
-      const tx = targets[ix] * pulseFactor;
-      const ty = targets[iy] * pulseFactor;
-      const tz = targets[iz] * pulseFactor;
+      let tx = targets[ix];
+      let ty = targets[iy];
+      let tz = targets[iz];
 
-      // Hedefe git
+      // --- SPECTRUM MAPPING (PARALEL EKOLAYZIR HAREKETİ) ---
+      let freqValue = 0;
+
+      if (isAudioActive && dataArrayRef.current) {
+          let binIndex = 0;
+          
+          if (!text && !image) {
+              // KÜRE MODU: Radyal Eşleme
+              // Partikülün indexini rastgele ama tutarlı bir frekansa bağla
+              // Veya Y eksenine göre bağla (Aşağısı bass, yukarısı tiz gibi)
+              // Daha estetik: Kürenin merkezinden uzaklığına göre değil, yüzeydeki noise gibi
+              binIndex = i % (bufferLength / 2); // Frekansların yarısını kullan (genelde daha doludur)
+          } else {
+              // YAZI/RESİM MODU: Lineer Eşleme (X Ekseni = Frekans)
+              // tx (target X) pozisyonunu 0-1 arasına normalize et
+              const normalizedX = (tx - minX) / width;
+              // 0-1 aralığını bufferLength'e map et (soldan sağa bass->tiz)
+              // Math.abs ile sınırları koru
+              binIndex = Math.floor(Math.abs(normalizedX) * (bufferLength * 0.7)); // Tizlerin en ucunu kes, genelde boştur
+              if (binIndex >= bufferLength) binIndex = bufferLength - 1;
+          }
+
+          // Ses verisi (0-255 arası) -> 0.0-1.0
+          const rawVal = dataArrayRef.current[binIndex] / 255.0;
+          freqValue = rawVal;
+          
+          // Z ekseninde (derinlik) patlama yap
+          // Baslar (düşük index) daha çok öne fırlasın
+          const boost = (binIndex < 10) ? 1.5 : 1.0; 
+          
+          // EĞER SES VARSA HEDEFİ DEĞİŞTİR
+          // Küre için merkezden dışarı, Yazı için Z ekseni
+          if (!text && !image) {
+              // Küre: Yarıçapı artır
+              const spike = rawVal * 3.0 * boost;
+              // Mevcut vektör yönünde dışarı it
+              // (tx,ty,tz origin 0,0,0 kabul ediyoruz yaklaşık olarak)
+              const len = Math.sqrt(tx*tx + ty*ty + tz*tz) || 1;
+              tx += (tx / len) * spike;
+              ty += (ty / len) * spike;
+              tz += (tz / len) * spike;
+          } else {
+              // Yazı/Resim: Z ekseninde hareket
+              // Hem ileri hem geri titreşim (dalga efekti için)
+              tz += rawVal * 4.0 * boost;
+          }
+      }
+
+      // Hedefe git (Yay Fiziği)
       vx += (tx - px) * springStrength;
       vy += (ty - py) * springStrength;
       vz += (tz - pz) * springStrength;
 
-      // AUDIO JITTER (Tiz seslerde titreme)
-      if (treble > 0.3) {
-          vx += (Math.random() - 0.5) * treble * 0.1;
-          vy += (Math.random() - 0.5) * treble * 0.1;
-          vz += (Math.random() - 0.5) * treble * 0.1;
-      }
-
-      // PRESET MOTION
+      // PRESET MOTION (Sessizken veya ses varken de çalışabilir)
       if (activePreset === 'fire') {
          vy += 0.005 + Math.random() * 0.005; 
          vx += (Math.random() - 0.5) * 0.01;
@@ -520,48 +607,67 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
 
       positionsAttribute.setXYZ(i, current[ix], current[iy], current[iz]);
 
-      // COLOR UPDATE (Audio etkili)
-      if (activePreset !== 'none' || audioMode !== 'none') {
+      // COLOR UPDATE (SES ETKİLEŞİMİ)
+      // Renkleri sadece ses varsa ve belirli bir eşiği geçiyorsa değiştirelim
+      // Yoksa orijinal renklere sadık kalalım
+      if (isAudioActive || activePreset !== 'none') {
           let r=1, g=1, b=1;
-          // Audio Tiz vurduğunda beyazlat
-          const flash = treble * 2.0; 
+          
+          // Orijinal renk (Resim veya Color Picker)
+          let baseR = 1, baseG = 1, baseB = 1;
+          if (activePreset === 'none') {
+              // Simülasyon verisinden al
+              baseR = simulationData.originalColors[ix] || 1;
+              baseG = simulationData.originalColors[iy] || 1;
+              baseB = simulationData.originalColors[iz] || 1;
+              
+              // Varsayılan beyaz ise ve color picker seçiliyse, color picker rengini baz almalıyız
+              // Ancak karmaşıklık olmasın diye burada originalColors kullanıyoruz, bu zaten MagicParticles'da set ediliyor.
+          }
 
-          if (activePreset === 'electric') {
-              const isFlash = Math.random() > 0.98;
-              if (isFlash) { r=1; g=1; b=1; } 
-              else { r=0.1 + flash; g=0.5 + flash; b=1.0; } 
+          if (activePreset === 'none') {
+             // Sadece ses görselleştirme rengi
+             // Ses ne kadar yüksekse o kadar parla veya renk değiştir
+             // Mavi-Mor spektrumu ekleyelim
+             const intensity = freqValue * 1.5;
+             r = baseR + intensity * 0.5; // Kırmızı ekle
+             g = baseG - intensity * 0.2; // Yeşili azalt
+             b = baseB + intensity * 0.8; // Mavi ekle (Mor'a çalsın)
           } 
-          else if (activePreset === 'fire') {
-              const heightFactor = Math.min(1, Math.max(0, (py + 4) / 8));
-              r = 1.0;
-              g = heightFactor * 0.8 + flash * 0.5; 
-              b = 0.1 + flash;
-          }
-          else if (activePreset === 'water') {
-              const depthFactor = Math.sin(time + px);
-              r = 0.0 + flash;
-              g = 0.5 + depthFactor * 0.2 + flash;
-              b = 1.0;
-          }
-          else if (activePreset === 'mercury') {
-              const shine = Math.abs(Math.sin(px * 2 + time));
-              r = 0.6 + shine * 0.4 + flash * 0.2;
-              g = 0.6 + shine * 0.4 + flash * 0.2;
-              b = 0.7 + shine * 0.3 + flash * 0.2;
-          }
-          // Eğer sadece Audio modundaysa ve preset yoksa, mevcut renge parlaklık ekle
-          else if (audioMode !== 'none') {
-             // Orijinal renk zaten colors arrayinde, onu bozmayalım ama 
-             // Threejs'de material vertexColors kullandığı için burayı manuel güncellemek gerekir.
-             // Performans için şimdilik sadece preset varsa veya renk override edilirse yapıyoruz.
-             // Eğer "audio reactive" renk istiyorsak buraya eklenmeli.
+          else {
+              // Preset renkleri + Audio Beat
+              const beatFlash = freqValue * 0.8;
+              
+              if (activePreset === 'electric') {
+                const isFlash = Math.random() > 0.98;
+                if (isFlash) { r=1; g=1; b=1; } 
+                else { r=0.1 + beatFlash; g=0.5 + beatFlash; b=1.0; } 
+              }
+              else if (activePreset === 'fire') {
+                  const heightFactor = Math.min(1, Math.max(0, (py + 4) / 8));
+                  r = 1.0;
+                  g = heightFactor * 0.8 + beatFlash; 
+                  b = 0.1 + beatFlash;
+              }
+              else if (activePreset === 'water') {
+                  const depthFactor = Math.sin(time + px);
+                  r = 0.0 + beatFlash;
+                  g = 0.5 + depthFactor * 0.2 + beatFlash;
+                  b = 1.0;
+              }
+              else if (activePreset === 'mercury') {
+                  const shine = Math.abs(Math.sin(px * 2 + time));
+                  r = 0.6 + shine * 0.4 + beatFlash;
+                  g = 0.6 + shine * 0.4 + beatFlash;
+                  b = 0.7 + shine * 0.3 + beatFlash;
+              }
           }
           colorsAttribute.setXYZ(i, Math.min(1,r), Math.min(1,g), Math.min(1,b));
       }
     }
 
     positionsAttribute.needsUpdate = true;
-    if (activePreset !== 'none') {
+    if (activePreset !== 'none' || isAudioActive) {
         colorsAttribute.needsUpdate = true;
     }
 
