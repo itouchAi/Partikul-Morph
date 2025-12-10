@@ -524,8 +524,22 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
               binIndex = i % (bufferLength / 2); 
           } else {
               // YAZI/RESİM MODU: Lineer Eşleme (X Ekseni = Frekans)
-              const normalizedX = (tx - minX) / width;
-              binIndex = Math.floor(Math.abs(normalizedX) * (bufferLength * 0.7)); 
+              let normalizedX = (tx - minX) / width;
+              
+              // CLAMP işlemi: Bound dışına taşmaları düzeltelim
+              if (normalizedX < 0) normalizedX = 0;
+              if (normalizedX > 1) normalizedX = 1;
+
+              // STRETCH İŞLEMİ:
+              // Ses spektrumunun genellikle sadece ilk %40'ı (Bass ve Mid) doludur.
+              // Eğer tüm spektruma map edersek (0-128), sağ taraf (Highs) boş kalır ve şeklin sağ yarısı oynamaz.
+              // Bu yüzden 0-1 aralığını spektrumun 0-0.4 aralığına map ediyoruz.
+              // Böylece tüm şekil, aktif olan ses frekanslarıyla hareket eder.
+              const activeSpectrumRatio = 0.4; // Spektrumun ilk %40'ını kullan
+              const maxActiveBin = Math.floor(bufferLength * activeSpectrumRatio);
+              
+              binIndex = Math.floor(normalizedX * maxActiveBin);
+              
               if (binIndex >= bufferLength) binIndex = bufferLength - 1;
           }
 
@@ -534,7 +548,9 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
           freqValue = rawVal;
           
           // Z ekseninde (derinlik) patlama yap
-          const boost = (binIndex < 10) ? 1.5 : 1.0; 
+          // Bass frekansları (düşük indeksler) daha güçlü vursun
+          const isBass = binIndex < bufferLength * 0.1;
+          const boost = isBass ? 1.5 : 1.0; 
           
           if (!text && !image) {
               // Küre: Yarıçapı artır
@@ -545,7 +561,9 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
               tz += (tz / len) * spike;
           } else {
               // Yazı/Resim: Z ekseninde hareket
+              // Sadece Z ekseninde değil, hafifçe Y ekseninde de zıplatmak daha organik durur
               tz += rawVal * 4.0 * boost;
+              // ty += rawVal * 0.5; // Opsiyonel: Yukarı zıplama
           }
       }
 
