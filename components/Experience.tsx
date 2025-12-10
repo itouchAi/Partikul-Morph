@@ -4,7 +4,7 @@ import { OrbitControls } from '@react-three/drei';
 import { MagicParticles } from './MagicParticles';
 import * as THREE from 'three';
 
-type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury';
+type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury' | 'disco';
 type AudioMode = 'none' | 'file' | 'mic';
 
 interface ExperienceProps {

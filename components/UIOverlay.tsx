@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 
-type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury';
+type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury' | 'disco';
 type AudioMode = 'none' | 'file' | 'mic';
 
 interface UIOverlayProps {
@@ -159,22 +159,24 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         @keyframes fire-burn { 0% { box-shadow: 0 0 5px #f00; border-color: #f00; background: rgba(255,0,0,0.1); } 50% { box-shadow: 0 -5px 20px #ff0, 0 0 10px #f00; border-color: #ff0; background: rgba(255,50,0,0.3); } 100% { box-shadow: 0 0 5px #f00; border-color: #f00; background: rgba(255,0,0,0.1); } }
         @keyframes water-flow { 0% { border-radius: 4px; box-shadow: 0 0 5px #00f; border-color: #00f; } 50% { border-radius: 12px; box-shadow: 0 5px 15px #0af; border-color: #0af; } 100% { border-radius: 4px; box-shadow: 0 0 5px #00f; border-color: #00f; } }
         @keyframes mercury-blob { 0% { transform: scale(1); border-color: #aaa; background: rgba(200,200,200,0.2); } 50% { transform: scale(1.05); border-color: #fff; background: rgba(255,255,255,0.4); } 100% { transform: scale(1); border-color: #aaa; background: rgba(200,200,200,0.2); } }
+        @keyframes disco-spin { 0% { border-color: #f00; box-shadow: 0 0 10px #f00; } 20% { border-color: #ff0; box-shadow: 0 0 10px #ff0; } 40% { border-color: #0f0; box-shadow: 0 0 10px #0f0; } 60% { border-color: #0ff; box-shadow: 0 0 10px #0ff; } 80% { border-color: #00f; box-shadow: 0 0 10px #00f; } 100% { border-color: #f0f; box-shadow: 0 0 10px #f0f; } }
         .preset-btn { transition: all 0.3s ease; }
         .preset-btn:hover { transform: scale(1.1); }
         .preset-electric:hover, .preset-electric.active { animation: electric-pulse 0.5s infinite; }
         .preset-fire:hover, .preset-fire.active { animation: fire-burn 1s infinite; }
         .preset-water:hover, .preset-water.active { animation: water-flow 2s infinite ease-in-out; }
         .preset-mercury:hover, .preset-mercury.active { animation: mercury-blob 3s infinite ease-in-out; }
+        .preset-disco:hover, .preset-disco.active { animation: disco-spin 2s infinite linear; }
       `}</style>
 
       {/* SOL TARAFA PRESET MENÜSÜ */}
       <div className="absolute left-6 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-4"
            onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>
-          {/* Preset Buttons... (Önceki kod ile aynı, kısaltmak için tekrarlamıyorum) */}
           <button onClick={() => onPresetChange(activePreset === 'electric' ? 'none' : 'electric')} className={`preset-btn preset-electric w-12 h-12 border border-white/20 bg-black/50 backdrop-blur-md rounded flex items-center justify-center group ${activePreset === 'electric' ? 'active' : ''}`} title="Elektrik Efekti"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-cyan-400"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></button>
           <button onClick={() => onPresetChange(activePreset === 'fire' ? 'none' : 'fire')} className={`preset-btn preset-fire w-12 h-12 border border-white/20 bg-black/50 backdrop-blur-md rounded flex items-center justify-center group ${activePreset === 'fire' ? 'active' : ''}`} title="Ateş Efekti"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.1.2-2.2.5-3 .5.7 1 1.3 2 1.5z"></path></svg></button>
           <button onClick={() => onPresetChange(activePreset === 'water' ? 'none' : 'water')} className={`preset-btn preset-water w-12 h-12 border border-white/20 bg-black/50 backdrop-blur-md rounded flex items-center justify-center group ${activePreset === 'water' ? 'active' : ''}`} title="Su Efekti"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg></button>
           <button onClick={() => onPresetChange(activePreset === 'mercury' ? 'none' : 'mercury')} className={`preset-btn preset-mercury w-12 h-12 border border-white/20 bg-black/50 backdrop-blur-md rounded flex items-center justify-center group ${activePreset === 'mercury' ? 'active' : ''}`} title="Civa Efekti"><div className="w-5 h-5 rounded-full bg-gradient-to-br from-gray-300 to-gray-600 border border-white/50"></div></button>
+          <button onClick={() => onPresetChange(activePreset === 'disco' ? 'none' : 'disco')} className={`preset-btn preset-disco w-12 h-12 border border-white/20 bg-black/50 backdrop-blur-md rounded flex items-center justify-center group ${activePreset === 'disco' ? 'active' : ''}`} title="Disco Modu"><div className="w-5 h-5 rounded-full bg-[conic-gradient(red,yellow,lime,aqua,blue,magenta,red)] border border-white/50 animate-spin" style={{ animationDuration: '3s' }}></div></button>
           {activePreset !== 'none' && (<div className="absolute top-full mt-2 left-0 w-full text-[10px] text-gray-500 text-center font-mono">ESC: İptal</div>)}
       </div>
 

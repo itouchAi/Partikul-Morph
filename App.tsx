@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Experience } from './components/Experience';
 import { UIOverlay } from './components/UIOverlay';
 
-export type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury';
+export type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury' | 'disco';
 export type AudioMode = 'none' | 'file' | 'mic';
 
 const App: React.FC = () => {

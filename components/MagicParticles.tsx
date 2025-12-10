@@ -6,7 +6,7 @@ import { FontLoader } from 'three/examples/jsm/loaders/FontLoader';
 const SPHERE_RADIUS = 4;
 const FONT_URL = 'https://cdn.jsdelivr.net/npm/three/examples/fonts/helvetiker_bold.typeface.json';
 
-type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury';
+type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury' | 'disco';
 type AudioMode = 'none' | 'file' | 'mic';
 
 interface MagicParticlesProps {
@@ -189,6 +189,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
             if (activePreset === 'water') mod = 0.5; 
             if (activePreset === 'electric') mod = 1.5; 
             if (activePreset === 'mercury') mod = 0.3; 
+            if (activePreset === 'disco') mod = 1.2;
             
             velocities[i] += (Math.random() - 0.5) * explodeForce * mod; 
         }
@@ -225,15 +226,27 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   useEffect(() => {
     const { colors, originalColors } = simulationData;
 
+    // Disco modunda renkler dinamik olduğu için burada statik bir şey yapmaya gerek yok,
+    // ama 'none' modunda ve image yoksa rengin kesinlikle tutması gerek.
     if (activePreset === 'none') {
         if (image && useImageColors) {
             colors.set(originalColors);
         } else {
             const c = new THREE.Color(color);
             for(let i=0; i<particleCount; i++) {
-            colors[i*3] = c.r;
-            colors[i*3+1] = c.g;
-            colors[i*3+2] = c.b;
+              // RENK SEÇİMİNİN TUTARLI OLMASI İÇİN ÖNEMLİ:
+              // Sadece görüntülenen renkleri değil, referans renkleri de güncelliyoruz.
+              const r = c.r;
+              const g = c.g;
+              const b = c.b;
+
+              colors[i*3] = r;
+              colors[i*3+1] = g;
+              colors[i*3+2] = b;
+
+              originalColors[i*3] = r;
+              originalColors[i*3+1] = g;
+              originalColors[i*3+2] = b;
             }
         }
         if (pointsRef.current) {
@@ -467,6 +480,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     if (activePreset === 'water') { springStrength = 0.02; friction = 0.96; } 
     else if (activePreset === 'mercury') { springStrength = 0.08; friction = 0.90; } 
     else if (activePreset === 'electric') { springStrength = 0.1; friction = 0.85; }
+    else if (activePreset === 'disco') { springStrength = 0.06; friction = 0.92; }
 
     const dynamicRepulsionRadius = 1.0 + (repulsionRadius / 100) * 5.0; 
     const repulsionForce = (repulsionStrength / 50.0);
@@ -476,6 +490,9 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     const { minX, maxX } = boundsRef.current;
     const width = maxX - minX || 1;
     const bufferLength = dataArrayRef.current ? dataArrayRef.current.length : 1;
+
+    // Disco Color Temp Helper
+    const discoColor = new THREE.Color();
 
     for (let i = 0; i < particleCount; i++) {
       const ix = i * 3;
@@ -503,16 +520,11 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
           if (!text && !image) {
               // KÜRE MODU: Radyal Eşleme
               // Partikülün indexini rastgele ama tutarlı bir frekansa bağla
-              // Veya Y eksenine göre bağla (Aşağısı bass, yukarısı tiz gibi)
-              // Daha estetik: Kürenin merkezinden uzaklığına göre değil, yüzeydeki noise gibi
-              binIndex = i % (bufferLength / 2); // Frekansların yarısını kullan (genelde daha doludur)
+              binIndex = i % (bufferLength / 2); 
           } else {
               // YAZI/RESİM MODU: Lineer Eşleme (X Ekseni = Frekans)
-              // tx (target X) pozisyonunu 0-1 arasına normalize et
               const normalizedX = (tx - minX) / width;
-              // 0-1 aralığını bufferLength'e map et (soldan sağa bass->tiz)
-              // Math.abs ile sınırları koru
-              binIndex = Math.floor(Math.abs(normalizedX) * (bufferLength * 0.7)); // Tizlerin en ucunu kes, genelde boştur
+              binIndex = Math.floor(Math.abs(normalizedX) * (bufferLength * 0.7)); 
               if (binIndex >= bufferLength) binIndex = bufferLength - 1;
           }
 
@@ -521,23 +533,17 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
           freqValue = rawVal;
           
           // Z ekseninde (derinlik) patlama yap
-          // Baslar (düşük index) daha çok öne fırlasın
           const boost = (binIndex < 10) ? 1.5 : 1.0; 
           
-          // EĞER SES VARSA HEDEFİ DEĞİŞTİR
-          // Küre için merkezden dışarı, Yazı için Z ekseni
           if (!text && !image) {
               // Küre: Yarıçapı artır
               const spike = rawVal * 3.0 * boost;
-              // Mevcut vektör yönünde dışarı it
-              // (tx,ty,tz origin 0,0,0 kabul ediyoruz yaklaşık olarak)
               const len = Math.sqrt(tx*tx + ty*ty + tz*tz) || 1;
               tx += (tx / len) * spike;
               ty += (ty / len) * spike;
               tz += (tz / len) * spike;
           } else {
               // Yazı/Resim: Z ekseninde hareket
-              // Hem ileri hem geri titreşim (dalga efekti için)
               tz += rawVal * 4.0 * boost;
           }
       }
@@ -562,6 +568,11 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
              vy += (Math.random() - 0.5) * 0.2;
              vz += (Math.random() - 0.5) * 0.2;
          }
+      }
+      else if (activePreset === 'disco') {
+         // Hafif dans eden hareket
+         vx += Math.sin(time * 3 + py * 0.5) * 0.001;
+         vy += Math.cos(time * 2 + px * 0.5) * 0.001;
       }
 
       // Mouse Etkileşimi
@@ -607,32 +618,26 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
 
       positionsAttribute.setXYZ(i, current[ix], current[iy], current[iz]);
 
-      // COLOR UPDATE (SES ETKİLEŞİMİ)
-      // Renkleri sadece ses varsa ve belirli bir eşiği geçiyorsa değiştirelim
-      // Yoksa orijinal renklere sadık kalalım
+      // COLOR UPDATE (SES ETKİLEŞİMİ veya PRESET)
       if (isAudioActive || activePreset !== 'none') {
           let r=1, g=1, b=1;
           
           // Orijinal renk (Resim veya Color Picker)
           let baseR = 1, baseG = 1, baseB = 1;
+          
           if (activePreset === 'none') {
-              // Simülasyon verisinden al
+              // 'none' modunda, orijinal renkleri baz al (Bu artık color picker ile güncel)
               baseR = simulationData.originalColors[ix] || 1;
               baseG = simulationData.originalColors[iy] || 1;
               baseB = simulationData.originalColors[iz] || 1;
-              
-              // Varsayılan beyaz ise ve color picker seçiliyse, color picker rengini baz almalıyız
-              // Ancak karmaşıklık olmasın diye burada originalColors kullanıyoruz, bu zaten MagicParticles'da set ediliyor.
           }
 
           if (activePreset === 'none') {
-             // Sadece ses görselleştirme rengi
-             // Ses ne kadar yüksekse o kadar parla veya renk değiştir
-             // Mavi-Mor spektrumu ekleyelim
-             const intensity = freqValue * 1.5;
-             r = baseR + intensity * 0.5; // Kırmızı ekle
-             g = baseG - intensity * 0.2; // Yeşili azalt
-             b = baseB + intensity * 0.8; // Mavi ekle (Mor'a çalsın)
+             // Ses görselleştirme: Sadece parlaklık ekle
+             const intensity = freqValue * 1.5; 
+             r = baseR + intensity * 0.6;
+             g = baseG + intensity * 0.6;
+             b = baseB + intensity * 0.6;
           } 
           else {
               // Preset renkleri + Audio Beat
@@ -660,6 +665,17 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                   r = 0.6 + shine * 0.4 + beatFlash;
                   g = 0.6 + shine * 0.4 + beatFlash;
                   b = 0.7 + shine * 0.3 + beatFlash;
+              }
+              else if (activePreset === 'disco') {
+                  // Gökkuşağı dalgası
+                  // Pozisyon ve zamana göre HSL hesapla
+                  const hue = (time * 0.2 + px * 0.05 + py * 0.05) % 1.0;
+                  discoColor.setHSL(hue, 1.0, 0.5);
+                  
+                  // Beat eklentisi
+                  r = discoColor.r + beatFlash;
+                  g = discoColor.g + beatFlash;
+                  b = discoColor.b + beatFlash;
               }
           }
           colorsAttribute.setXYZ(i, Math.min(1,r), Math.min(1,g), Math.min(1,b));
@@ -703,7 +719,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
         sizeAttenuation={true}
         transparent={true}
         opacity={activePreset === 'mercury' ? 1.0 : 0.9} 
-        blending={activePreset === 'fire' || activePreset === 'electric' ? THREE.AdditiveBlending : THREE.NormalBlending} 
+        blending={activePreset === 'fire' || activePreset === 'electric' || activePreset === 'disco' ? THREE.AdditiveBlending : THREE.NormalBlending} 
         depthWrite={false}
       />
     </points>
