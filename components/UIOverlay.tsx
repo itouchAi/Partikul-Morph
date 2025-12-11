@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 
 type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury' | 'disco';
 type AudioMode = 'none' | 'file' | 'mic';
+type BackgroundMode = 'dark' | 'light' | 'image' | 'color' | 'gradient' | 'auto';
 
 interface UIOverlayProps {
   onSubmit: (text: string) => void;
@@ -34,13 +35,11 @@ interface UIOverlayProps {
   particleCount: number;
   onParticleCountChange: (val: number) => void;
   
-  // YENİ VE DEĞİŞEN PROPLAR
   particleSize: number;
   onParticleSizeChange: (val: number) => void;
   modelDensity: number;
   onModelDensityChange: (val: number) => void;
 
-  // Presetler
   activePreset: PresetType;
   onPresetChange: (preset: PresetType) => void;
   // Ses
@@ -49,6 +48,11 @@ interface UIOverlayProps {
   // Reset
   onResetAll: () => void;
   onClearCanvas: () => void;
+  
+  // Arka Plan Tema Kontrolleri
+  bgMode: BackgroundMode;
+  onBgModeChange: (mode: BackgroundMode, data?: string) => void;
+  customBgColor: string;
 }
 
 export const UIOverlay: React.FC<UIOverlayProps> = ({ 
@@ -87,11 +91,15 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   onAudioChange,
   audioMode,
   onResetAll,
-  onClearCanvas
+  onClearCanvas,
+  bgMode,
+  onBgModeChange,
+  customBgColor
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false); // Yeni Tema Menüsü State'i
   const [savedColor, setSavedColor] = useState(currentColor);
   
   const [showImageModal, setShowImageModal] = useState(false);
@@ -99,11 +107,14 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const bgImageInputRef = useRef<HTMLInputElement>(null); // Arka plan resmi için input
+  const bgColorInputRef = useRef<HTMLInputElement>(null); // Arka plan rengi için input
   const [pendingImage, setPendingImage] = useState<string | null>(null);
 
   useEffect(() => {
     if (isDrawing) {
         setIsSettingsOpen(true);
+        setIsThemeMenuOpen(false);
     } else {
         setIsSettingsOpen(false);
     }
@@ -164,6 +175,21 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const handleBgImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+              if (event.target?.result) {
+                  onBgModeChange('image', event.target.result as string);
+                  setIsThemeMenuOpen(false);
+              }
+          };
+          reader.readAsDataURL(file);
+      }
+      if (bgImageInputRef.current) bgImageInputRef.current.value = '';
+  }
+
   const handleAudioSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -198,6 +224,12 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
       e.stopPropagation();
   };
 
+  // --- Theme Menu Toggle Logic ---
+  const toggleThemeMenu = () => {
+      setIsThemeMenuOpen(!isThemeMenuOpen);
+      setIsSettingsOpen(false); // Diğerini kapat
+  };
+
   return (
     <>
       <style>{`
@@ -214,6 +246,16 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         .preset-mercury:hover, .preset-mercury.active { animation: mercury-blob 3s infinite ease-in-out; }
         .preset-disco:hover, .preset-disco.active { animation: disco-spin 2s infinite linear; }
         .cursor-pen { cursor: crosshair; }
+        
+        /* Tema Menüsü Animasyonu */
+        .theme-menu-item { opacity: 0; transform: translateX(20px); transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .theme-menu-open .theme-menu-item { opacity: 1; transform: translateX(0); }
+        .theme-menu-open .item-1 { transition-delay: 0.05s; }
+        .theme-menu-open .item-2 { transition-delay: 0.1s; }
+        .theme-menu-open .item-3 { transition-delay: 0.15s; }
+        .theme-menu-open .item-4 { transition-delay: 0.2s; }
+        .theme-menu-open .item-5 { transition-delay: 0.25s; }
+        .theme-menu-open .item-6 { transition-delay: 0.3s; }
       `}</style>
 
       {/* SOL TARAFA PRESET MENÜSÜ */}
@@ -241,9 +283,70 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
          </div>
       )}
 
-      {/* Sağ Üst Köşe: Ayarlar */}
-      <div className="absolute top-6 right-6 z-50" onPointerDown={stopProp}>
-        <button onClick={() => setIsSettingsOpen(!isSettingsOpen)} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border border-white/20 text-white ${isSettingsOpen ? 'bg-white/20 rotate-90' : 'bg-white/5 hover:bg-white/10'}`} title="Ayarlar"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+      {/* SAĞ ÜST KÖŞE: AYARLAR ve TEMA */}
+      <div className="absolute top-6 right-6 z-50 flex flex-col items-end gap-3" onPointerDown={stopProp}>
+        
+        {/* Buton Grubu */}
+        <div className="flex gap-2">
+            {/* TEMA MENÜ BUTONU */}
+            <button 
+                onClick={toggleThemeMenu}
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border border-white/20 text-white ${isThemeMenuOpen ? 'bg-white/20 scale-110 shadow-[0_0_15px_rgba(255,255,255,0.3)]' : 'bg-white/5 hover:bg-white/10'}`}
+                title="Tema ve Arka Plan"
+            >
+                {/* Tema İkonu (Palet/Fırça Karışımı) */}
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path><path d="M16 16.5l-3 3"></path><path d="M11 11.5l-3 3"></path></svg>
+            </button>
+
+            {/* AYARLAR BUTONU */}
+            <button 
+                onClick={() => { setIsSettingsOpen(!isSettingsOpen); setIsThemeMenuOpen(false); }} 
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border border-white/20 text-white ${isSettingsOpen ? 'bg-white/20 rotate-90' : 'bg-white/5 hover:bg-white/10'}`} 
+                title="Konfigürasyon"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+            </button>
+        </div>
+
+        {/* TEMA MENÜSÜ İÇERİĞİ (Sola Doğru Açılan VFX) */}
+        <div className={`absolute top-12 right-12 flex flex-col gap-2 items-end ${isThemeMenuOpen ? 'theme-menu-open pointer-events-auto' : 'pointer-events-none'}`}>
+             
+             <input type="file" accept="image/*" ref={bgImageInputRef} onChange={handleBgImageSelect} className="hidden" />
+             <input type="color" ref={bgColorInputRef} onChange={(e) => { onBgModeChange('color', e.target.value); }} className="hidden" />
+
+             {/* 1. Karanlık Tema */}
+             <button onClick={() => onBgModeChange('dark')} className={`theme-menu-item item-1 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/80 text-white hover:scale-110 ${bgMode === 'dark' ? 'ring-2 ring-white' : ''}`} title="Karanlık Mod">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+             </button>
+
+             {/* 2. Aydınlık Tema (Güneş) */}
+             <button onClick={() => onBgModeChange('light')} className={`theme-menu-item item-2 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-white text-black hover:scale-110 ${bgMode === 'light' ? 'ring-2 ring-yellow-400' : ''}`} title="Aydınlık Mod (Partikülleri Siyah Yapar)">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+             </button>
+
+             {/* 3. Resim Yükleme */}
+             <button onClick={() => bgImageInputRef.current?.click()} className={`theme-menu-item item-3 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gray-800 text-white hover:scale-110 ${bgMode === 'image' ? 'ring-2 ring-blue-400' : ''}`} title="Arka Plan Resmi">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+             </button>
+
+             {/* 4. Renk Paleti */}
+             <button onClick={() => bgColorInputRef.current?.click()} className={`theme-menu-item item-4 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gradient-to-tr from-pink-500 to-purple-500 text-white hover:scale-110 ${bgMode === 'color' ? 'ring-2 ring-pink-300' : ''}`} title="Arka Plan Rengi">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5"></circle><circle cx="17.5" cy="10.5" r=".5"></circle><circle cx="8.5" cy="7.5" r=".5"></circle><circle cx="6.5" cy="12.5" r=".5"></circle><path d="M12 22.5A9.5 9.5 0 0 0 22 12c0-4.9-4.5-9-10-9S2 7.1 2 12c0 2.25 1 5.38 2.5 7.5"></path></svg>
+             </button>
+
+             {/* 5. Gradient (Disco) */}
+             <button onClick={() => onBgModeChange('gradient')} className={`theme-menu-item item-5 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-[linear-gradient(45deg,red,blue)] text-white hover:scale-110 ${bgMode === 'gradient' ? 'ring-2 ring-purple-400' : ''}`} title="Disko Modu">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+             </button>
+
+             {/* 6. Auto (Rastgele Renk) */}
+             <button onClick={() => onBgModeChange('auto')} className={`theme-menu-item item-6 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gray-900 text-white hover:scale-110 ${bgMode === 'auto' ? 'ring-2 ring-green-400' : ''}`} title="Otomatik Döngü">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+             </button>
+
+        </div>
+
+        {/* AYARLAR MENÜSÜ (Mevcut) */}
         {isSettingsOpen && (
           <div className="absolute top-12 right-0 w-64 bg-[#111]/90 backdrop-blur-xl border border-white/10 rounded-xl p-5 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>
             <h4 className="text-white/80 text-xs font-mono uppercase tracking-widest mb-4 border-b border-white/10 pb-2">Konfigürasyon</h4>

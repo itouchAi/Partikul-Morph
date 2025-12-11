@@ -263,9 +263,9 @@ export const Experience: React.FC<ExperienceProps> = ({
     <Canvas
       camera={{ position: [0, 0, 15], fov: 45 }}
       dpr={[1, 2]}
-      gl={{ antialias: true, alpha: false }}
+      gl={{ antialias: true, alpha: true }} 
     >
-      <color attach="background" args={['#000000']} />
+      {/* Siyah Arka Plan Kaldırıldı ki App.tsx'teki CSS arka plan görünsün */}
       
       <OrbitControls 
         makeDefault

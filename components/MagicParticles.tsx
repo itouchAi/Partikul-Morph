@@ -54,6 +54,9 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   const { camera, gl } = useThree();
   const [isProcessing, setIsProcessing] = useState(false);
   
+  // Başlangıçta imlecin merkezde algılanıp delik açmasını önlemek için flag
+  const hasUserInteracted = useRef(false);
+  
   const isRightClicking = useRef(false);
   
   // Audio Refs
@@ -80,6 +83,18 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
          return 1.0 - ((modelDensity - 50) / 50) * 0.6;
      }
   }, [modelDensity]);
+
+  // --- İlk Fare Hareketini Dinle ---
+  useEffect(() => {
+      const handleFirstMove = () => {
+          hasUserInteracted.current = true;
+          window.removeEventListener('pointermove', handleFirstMove);
+      };
+      window.addEventListener('pointermove', handleFirstMove);
+      return () => {
+          window.removeEventListener('pointermove', handleFirstMove);
+      };
+  }, []);
 
   // --- Audio Setup ---
   useEffect(() => {
@@ -525,7 +540,8 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     const rayOrigin = new THREE.Vector3();
     const rayDir = new THREE.Vector3();
 
-    if (isInsideCanvas && !disableMouseRepulsion && !isRightClicking.current && repulsionStrength > 0) {
+    // INTERACTION CHECK: Sadece kullanıcı etkileşime geçtiyse ve canvas içindeyse çalışır.
+    if (isInsideCanvas && !disableMouseRepulsion && !isRightClicking.current && repulsionStrength > 0 && hasUserInteracted.current) {
         state.raycaster.setFromCamera(pointer, camera);
         // Interaction için sadece Ray'in Origin ve Direction'ını saklıyoruz
         rayOrigin.copy(state.raycaster.ray.origin);
