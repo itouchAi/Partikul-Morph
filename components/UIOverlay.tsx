@@ -292,7 +292,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         .preset-disco:hover, .preset-disco.active { animation: disco-spin 2s infinite linear; }
         .cursor-pen { cursor: crosshair; }
         
-        /* Tema Menüsü Animasyonu */
+        /* Tema Menüsü Animasyonu (Soldan Sağa) */
         .theme-menu-item { opacity: 0; transform: translateX(20px); transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
         .theme-menu-open .theme-menu-item { opacity: 1; transform: translateX(0); }
         .theme-menu-open .item-1 { transition-delay: 0.05s; }
@@ -302,16 +302,34 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         .theme-menu-open .item-5 { transition-delay: 0.25s; }
         .theme-menu-open .item-6 { transition-delay: 0.3s; }
 
-        /* Konfigürasyon Stagger Animasyonu */
-        .config-item { opacity: 0; transform: translateY(-10px); transition: all 0.3s ease-out; }
-        .config-open .config-item { opacity: 1; transform: translateY(0); }
-        .config-open .c-item-1 { transition-delay: 0.05s; }
-        .config-open .c-item-2 { transition-delay: 0.1s; }
-        .config-open .c-item-3 { transition-delay: 0.15s; }
-        .config-open .c-item-4 { transition-delay: 0.2s; }
-        .config-open .c-item-5 { transition-delay: 0.25s; }
-        .config-open .c-item-6 { transition-delay: 0.3s; }
-        .config-open .c-item-7 { transition-delay: 0.35s; }
+        /* Konfigürasyon Menüsü Animasyonu (Keyframes - Daha güvenilir) */
+        @keyframes vfx-entry {
+            0% { opacity: 0; transform: translateY(-20px) scale(0.95); filter: blur(5px); }
+            100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0px); }
+        }
+        
+        @keyframes menu-pop {
+            0% { opacity: 0; transform: scale(0.9) translateY(-10px); }
+            100% { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .menu-animate { animation: menu-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+        
+        /* Liste öğeleri için animasyon */
+        .vfx-item { opacity: 0; animation: vfx-entry 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        
+        .delay-1 { animation-delay: 0.05s; }
+        .delay-2 { animation-delay: 0.1s; }
+        .delay-3 { animation-delay: 0.15s; }
+        .delay-4 { animation-delay: 0.2s; }
+        .delay-5 { animation-delay: 0.25s; }
+        .delay-6 { animation-delay: 0.3s; }
+        .delay-7 { animation-delay: 0.35s; }
+        
+        /* Alt kısımdaki oval renk seçici için */
+        .oval-picker-container {
+             animation: menu-pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
       `}</style>
 
       {/* SOL TARAFA PRESET MENÜSÜ */}
@@ -339,18 +357,19 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
          </div>
       )}
       
-      {/* --- SAĞ ALT KÖŞE: ARKA PLAN RENK SEÇİCİ (YENİ VFX PANEL) --- */}
+      {/* --- SAĞ ALT KÖŞE: ARKA PLAN RENK SEÇİCİ (YENİ OVAL TASARIM) --- */}
       {isBgPaletteOpen && (
-          <div className="absolute bottom-24 right-6 z-50 animate-in fade-in slide-in-from-bottom-5 duration-300 origin-bottom-right" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd} onPointerDown={stopProp}>
-              <div className={`backdrop-blur-xl border p-4 rounded-2xl shadow-2xl relative w-56 ${isLightMode ? 'bg-black/80 border-black/20' : 'bg-[#111]/90 border-white/20'}`}>
-                  <div className="flex justify-between items-center mb-2">
-                      <span className="text-white/80 text-[10px] font-mono tracking-widest uppercase">Arka Plan Rengi</span>
-                      <button onClick={() => setIsBgPaletteOpen(false)} className="text-white/40 hover:text-white transition-colors"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"></path></svg></button>
+          <div className="absolute bottom-24 right-4 z-50 origin-bottom-right oval-picker-container" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd} onPointerDown={stopProp}>
+              <div className={`backdrop-blur-xl border border-white/20 p-2 rounded-3xl shadow-2xl relative w-64 ${isLightMode ? 'bg-black/90' : 'bg-[#111]/90'}`}>
+                  {/* Başlık ve Kapat */}
+                  <div className="flex justify-between items-center px-3 py-1 border-b border-white/10 mb-2">
+                      <span className="text-white/70 text-[10px] font-mono tracking-widest uppercase">BG Color VFX</span>
+                      <button onClick={() => setIsBgPaletteOpen(false)} className="w-5 h-5 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/20 text-white/50 hover:text-white transition-colors"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12"></path></svg></button>
                   </div>
                   
                   {/* Spectrum Area */}
                   <div 
-                      className="w-full h-32 rounded-lg cursor-crosshair relative overflow-hidden shadow-inner border border-white/10 group" 
+                      className="w-full h-24 rounded-2xl cursor-crosshair relative overflow-hidden shadow-inner border border-white/10 group mx-auto" 
                       onMouseMove={handleBgSpectrumMove} 
                       onClick={(e) => { handleBgSpectrumMove(e); }}
                       style={{ background: 'white' }}
@@ -359,11 +378,11 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                      <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,1) 0%, rgba(255,255,255,0) 50%, rgba(0,0,0,0) 50%, rgba(0,0,0,1) 100%)' }} />
                      
                      {/* Hover Effect */}
-                     <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none border-2 border-white/20 rounded-lg"></div>
+                     <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none border-2 border-white/20 rounded-2xl"></div>
                   </div>
 
-                  <div className="mt-2 flex gap-2 items-center">
-                       <div className="w-6 h-6 rounded-full border border-white/20 shadow-sm" style={{ backgroundColor: customBgColor }}></div>
+                  <div className="mt-2 flex gap-3 items-center justify-center pb-1">
+                       <div className="w-5 h-5 rounded-full border border-white/30 shadow-[0_0_10px_rgba(255,255,255,0.2)]" style={{ backgroundColor: customBgColor }}></div>
                        <span className="text-[10px] font-mono text-white/50">{customBgColor.toUpperCase()}</span>
                   </div>
               </div>
@@ -443,12 +462,12 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
         {/* AYARLAR MENÜSÜ (Stagger Animasyonlu) */}
         {isSettingsOpen && (
-          <div className={`absolute top-12 right-0 w-64 bg-[#111]/90 backdrop-blur-xl border border-white/10 rounded-xl p-5 shadow-2xl origin-top-right transition-all duration-300 ${isSettingsOpen ? 'config-open' : ''}`} onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>
-            <h4 className="text-white/80 text-xs font-mono uppercase tracking-widest mb-4 border-b border-white/10 pb-2 config-item c-item-1">Konfigürasyon</h4>
+          <div className="absolute top-12 right-0 w-64 bg-[#111]/90 backdrop-blur-xl border border-white/10 rounded-xl p-5 shadow-2xl origin-top-right menu-animate" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>
+            <h4 className="text-white/80 text-xs font-mono uppercase tracking-widest mb-4 border-b border-white/10 pb-2 vfx-item delay-1">Konfigürasyon</h4>
             
             {/* Sadece Çizim Modunda Görünen Ayarlar */}
             {isDrawing && (
-                <div className="mb-5 border-b border-white/10 pb-4 space-y-4 config-item c-item-2">
+                <div className="mb-5 border-b border-white/10 pb-4 space-y-4 vfx-item delay-2">
                     <div>
                         <div className="flex justify-between text-xs text-yellow-400 mb-1 font-bold"><span>Fırça Kalınlığı</span><span>{brushSize}px</span></div>
                         <input type="range" min="1" max="100" value={brushSize} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onBrushSizeChange(parseInt(e.target.value))} className="w-full h-1.5 bg-yellow-500/30 rounded-lg appearance-none cursor-pointer accent-yellow-400 hover:accent-yellow-200"/>
@@ -464,10 +483,10 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                 </div>
             )}
 
-            <div className="mb-5 config-item c-item-3"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>İmleç Gücü</span><span>{repulsionStrength}%</span></div><input type="range" min="0" max="100" value={repulsionStrength} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onRepulsionChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
-            <div className="mb-5 config-item c-item-4"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>İmleç Çapı</span><span>{repulsionRadius}%</span></div><input type="range" min="0" max="100" value={repulsionRadius} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onRadiusChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
+            <div className="mb-5 vfx-item delay-3"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>İmleç Gücü</span><span>{repulsionStrength}%</span></div><input type="range" min="0" max="100" value={repulsionStrength} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onRepulsionChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
+            <div className="mb-5 vfx-item delay-4"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>İmleç Çapı</span><span>{repulsionRadius}%</span></div><input type="range" min="0" max="100" value={repulsionRadius} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onRadiusChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
             
-            <div className="mb-5 config-item c-item-5">
+            <div className="mb-5 vfx-item delay-5">
               <div className="flex justify-between text-xs text-gray-400 mb-1"><span>Partikül Sayısı</span></div>
               <div className="flex items-center gap-2">
                 <button 
@@ -491,17 +510,17 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
               <div className="text-[10px] text-gray-600 mt-1 text-center">Max: 50,000</div>
             </div>
             
-            <div className="mb-5 config-item c-item-6"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>Model Sıkılığı</span><span>{modelDensity}%</span></div><input type="range" min="0" max="100" value={modelDensity} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onModelDensityChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
+            <div className="mb-5 vfx-item delay-6"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>Model Sıkılığı</span><span>{modelDensity}%</span></div><input type="range" min="0" max="100" value={modelDensity} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onModelDensityChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
 
             {/* Derinlik Slayderı (Sadece Resim/Görsel Modunda) */}
             {hasImage && !isDrawing && (
-                <div className="mb-5 border-t border-white/10 pt-4 config-item c-item-7">
+                <div className="mb-5 border-t border-white/10 pt-4 vfx-item delay-7">
                     <div className="flex justify-between text-xs text-blue-300 mb-1"><span>Derinlik Etkisi</span><span>{Math.round(depthIntensity * 10)}%</span></div>
                     <input type="range" min="0" max="10" step="0.1" value={depthIntensity} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onDepthChange(parseFloat(e.target.value))} className="w-full h-1.5 bg-blue-500/30 rounded-lg appearance-none cursor-pointer accent-blue-400 hover:accent-blue-200"/>
                 </div>
             )}
 
-            <div className="mb-2 config-item c-item-7"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>Partikül Boyutu</span><span>{particleSize}</span></div><input type="range" min="1" max="100" value={particleSize} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onParticleSizeChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
+            <div className="mb-2 vfx-item delay-7"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>Partikül Boyutu</span><span>{particleSize}</span></div><input type="range" min="1" max="100" value={particleSize} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onParticleSizeChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
           </div>
         )}
       </div>
