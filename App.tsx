@@ -186,12 +186,12 @@ const App: React.FC = () => {
       className="relative w-full h-full overflow-hidden" 
       onContextMenu={(e) => e.preventDefault()} 
     >
-      {/* DINAMIK ARKA PLAN KATMANI */}
-      <div className="absolute inset-0 -z-10 transition-colors duration-1000 ease-in-out"
+      {/* DINAMIK ARKA PLAN KATMANI (Layer 0) */}
+      <div className="absolute inset-0 z-0 transition-colors duration-1000 ease-in-out"
            style={{
                backgroundColor: bgMode === 'dark' ? '#000' : 
                                 bgMode === 'light' ? '#fff' :
-                                bgMode === 'color' ? customBgColor : '#000'
+                                bgMode === 'color' ? customBgColor : 'transparent'
            }}
       >
           {/* Resim Modu */}
@@ -231,29 +231,33 @@ const App: React.FC = () => {
           }
       `}</style>
 
-      <Experience 
-        text={currentText} 
-        imageXY={imageSourceXY}
-        imageYZ={imageSourceYZ}
-        useImageColors={useImageColors}
-        particleColor={particleColor} 
-        disableInteraction={isUIInteraction}
-        depthIntensity={depthIntensity}
-        repulsionStrength={repulsionStrength}
-        repulsionRadius={repulsionRadius}
-        particleCount={particleCount}
-        particleSize={particleSize}
-        modelDensity={modelDensity}
-        activePreset={activePreset}
-        audioMode={audioMode}
-        audioUrl={audioUrl}
-        isDrawing={isDrawing}
-        brushSize={brushSize}
-        getDrawingDataRef={getDrawingDataRef}
-        canvasRotation={canvasRotation}
-        clearCanvasTrigger={clearCanvasTrigger}
-      />
+      {/* CANVAS KATMANI (Layer 1) - explicit z-index to stay on top of background but below UI */}
+      <div className="absolute inset-0 z-10">
+          <Experience 
+            text={currentText} 
+            imageXY={imageSourceXY}
+            imageYZ={imageSourceYZ}
+            useImageColors={useImageColors}
+            particleColor={particleColor} 
+            disableInteraction={isUIInteraction}
+            depthIntensity={depthIntensity}
+            repulsionStrength={repulsionStrength}
+            repulsionRadius={repulsionRadius}
+            particleCount={particleCount}
+            particleSize={particleSize}
+            modelDensity={modelDensity}
+            activePreset={activePreset}
+            audioMode={audioMode}
+            audioUrl={audioUrl}
+            isDrawing={isDrawing}
+            brushSize={brushSize}
+            getDrawingDataRef={getDrawingDataRef}
+            canvasRotation={canvasRotation}
+            clearCanvasTrigger={clearCanvasTrigger}
+          />
+      </div>
       
+      {/* UI KATMANI (Layer 2) - UIOverlay zaten z-50 ile en üstte */}
       <UIOverlay 
         onSubmit={handleTextSubmit} 
         onImageUpload={handleImageUpload}

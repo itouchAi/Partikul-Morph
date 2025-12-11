@@ -263,10 +263,10 @@ export const Experience: React.FC<ExperienceProps> = ({
     <Canvas
       camera={{ position: [0, 0, 15], fov: 45 }}
       dpr={[1, 2]}
-      gl={{ antialias: true, alpha: true }} 
+      gl={{ antialias: true, alpha: true }}
+      style={{ background: 'transparent' }} 
+      onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
     >
-      {/* Siyah Arka Plan Kaldırıldı ki App.tsx'teki CSS arka plan görünsün */}
-      
       <OrbitControls 
         makeDefault
         domElement={document.body}
