@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury' | 'disco';
 type AudioMode = 'none' | 'file' | 'mic';
 type BackgroundMode = 'dark' | 'light' | 'image' | 'color' | 'gradient' | 'auto';
+type BgImageStyle = 'cover' | 'contain' | 'fill' | 'none';
 
 interface UIOverlayProps {
   onSubmit: (text: string) => void;
@@ -52,6 +53,7 @@ interface UIOverlayProps {
   // Arka Plan Tema Kontrolleri
   bgMode: BackgroundMode;
   onBgModeChange: (mode: BackgroundMode, data?: string) => void;
+  onBgImageConfirm: (img: string, style: BgImageStyle) => void; // Yeni prop
   customBgColor: string;
 }
 
@@ -94,21 +96,28 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   onClearCanvas,
   bgMode,
   onBgModeChange,
+  onBgImageConfirm,
   customBgColor
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false); // Yeni Tema Menüsü State'i
+  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [savedColor, setSavedColor] = useState(currentColor);
   
+  // Modals
   const [showImageModal, setShowImageModal] = useState(false);
   const [showAudioModal, setShowAudioModal] = useState(false);
+  
+  // Arka Plan Resim Modal State'leri
+  const [showBgSettingsModal, setShowBgSettingsModal] = useState(false);
+  const [pendingBgImage, setPendingBgImage] = useState<string | null>(null);
+  const [selectedBgStyle, setSelectedBgStyle] = useState<BgImageStyle>('cover');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
-  const bgImageInputRef = useRef<HTMLInputElement>(null); // Arka plan resmi için input
-  const bgColorInputRef = useRef<HTMLInputElement>(null); // Arka plan rengi için input
+  const bgImageInputRef = useRef<HTMLInputElement>(null);
+  const bgColorInputRef = useRef<HTMLInputElement>(null);
   const [pendingImage, setPendingImage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -181,13 +190,26 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           const reader = new FileReader();
           reader.onload = (event) => {
               if (event.target?.result) {
-                  onBgModeChange('image', event.target.result as string);
+                  // Doğrudan değiştirmek yerine modal aç
+                  setPendingBgImage(event.target.result as string);
+                  setSelectedBgStyle('cover'); // Varsayılan
+                  setShowBgSettingsModal(true);
                   setIsThemeMenuOpen(false);
+                  onInteractionStart();
               }
           };
           reader.readAsDataURL(file);
       }
       if (bgImageInputRef.current) bgImageInputRef.current.value = '';
+  }
+
+  const confirmBgImage = () => {
+      if (pendingBgImage) {
+          onBgImageConfirm(pendingBgImage, selectedBgStyle);
+      }
+      setShowBgSettingsModal(false);
+      setPendingBgImage(null);
+      onInteractionEnd();
   }
 
   const handleAudioSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -308,7 +330,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
             </button>
         </div>
 
-        {/* TEMA MENÜSÜ İÇERİĞİ (Sola Doğru Açılan VFX) */}
+        {/* TEMA MENÜSÜ İÇERİĞİ */}
         <div className={`absolute top-12 right-12 flex flex-col gap-2 items-end ${isThemeMenuOpen ? 'theme-menu-open pointer-events-auto' : 'pointer-events-none'}`}>
              
              <input type="file" accept="image/*" ref={bgImageInputRef} onChange={handleBgImageSelect} className="hidden" />
@@ -411,7 +433,55 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         )}
       </div>
 
-      {/* MODAL: Resim Seçimi */}
+      {/* MODAL: Arka Plan Resim Ayarları (YENİ) */}
+      {showBgSettingsModal && pendingBgImage && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in zoom-in duration-300" onPointerDown={stopProp}>
+          <div className="bg-[#111] border border-white/10 p-6 rounded-2xl shadow-2xl max-w-lg w-full">
+            <h3 className="text-white text-lg font-light mb-4 text-center">Arka Plan Ayarları</h3>
+            
+            {/* Önizleme Alanı */}
+            <div className="w-full h-48 bg-black/50 border border-white/10 rounded-lg mb-6 overflow-hidden relative group">
+                <img 
+                    src={pendingBgImage} 
+                    alt="preview" 
+                    className="w-full h-full transition-all duration-300"
+                    style={{ objectFit: selectedBgStyle === 'fill' ? 'fill' : selectedBgStyle === 'none' ? 'none' : selectedBgStyle }}
+                />
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <span className="text-white/20 text-4xl font-bold opacity-0 group-hover:opacity-100 transition-opacity">ÖNİZLEME</span>
+                </div>
+            </div>
+
+            <p className="text-gray-400 text-xs mb-3 text-center">Görünüm Stili Seçin:</p>
+            
+            <div className="grid grid-cols-2 gap-3 mb-6">
+                <button onClick={() => setSelectedBgStyle('cover')} className={`py-3 rounded-lg border transition-all duration-200 ${selectedBgStyle === 'cover' ? 'bg-blue-600/30 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}>
+                    <span className="block font-medium text-sm">Doldur (Cover)</span>
+                    <span className="text-[10px] opacity-60">Boşluk kalmaz, kesilebilir</span>
+                </button>
+                <button onClick={() => setSelectedBgStyle('contain')} className={`py-3 rounded-lg border transition-all duration-200 ${selectedBgStyle === 'contain' ? 'bg-blue-600/30 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}>
+                    <span className="block font-medium text-sm">Sığdır (Contain)</span>
+                    <span className="text-[10px] opacity-60">Tamamı görünür, boşluk kalabilir</span>
+                </button>
+                <button onClick={() => setSelectedBgStyle('fill')} className={`py-3 rounded-lg border transition-all duration-200 ${selectedBgStyle === 'fill' ? 'bg-blue-600/30 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}>
+                    <span className="block font-medium text-sm">Uzat (Stretch)</span>
+                    <span className="text-[10px] opacity-60">Ekrana yayılır, oran bozulur</span>
+                </button>
+                <button onClick={() => setSelectedBgStyle('none')} className={`py-3 rounded-lg border transition-all duration-200 ${selectedBgStyle === 'none' ? 'bg-blue-600/30 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}>
+                    <span className="block font-medium text-sm">Ortala (Center)</span>
+                    <span className="text-[10px] opacity-60">Orijinal boyut, ortalanır</span>
+                </button>
+            </div>
+
+            <div className="flex gap-3">
+                <button onClick={() => { setShowBgSettingsModal(false); setPendingBgImage(null); onInteractionEnd(); }} className="flex-1 py-3 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white text-sm transition-colors">İptal</button>
+                <button onClick={confirmBgImage} className="flex-1 py-3 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-sm font-bold shadow-lg shadow-blue-900/20 transition-all transform hover:scale-[1.02]">Uygula</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Resim Seçimi (Partikül) */}
       {showImageModal && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onPointerDown={stopProp}>
           <div className="bg-[#111] border border-white/10 p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center">

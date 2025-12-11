@@ -6,6 +6,7 @@ import * as THREE from 'three';
 export type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury' | 'disco';
 export type AudioMode = 'none' | 'file' | 'mic';
 export type BackgroundMode = 'dark' | 'light' | 'image' | 'color' | 'gradient' | 'auto';
+export type BgImageStyle = 'cover' | 'contain' | 'fill' | 'none';
 
 const App: React.FC = () => {
   const [currentText, setCurrentText] = useState<string>('');
@@ -15,6 +16,7 @@ const App: React.FC = () => {
   const [bgMode, setBgMode] = useState<BackgroundMode>('dark');
   const [customBgColor, setCustomBgColor] = useState<string>('#000000');
   const [bgImage, setBgImage] = useState<string | null>(null);
+  const [bgImageStyle, setBgImageStyle] = useState<BgImageStyle>('cover'); // Yeni Stil State
 
   // Görüntü Kaynakları (Partiküller için)
   const [imageSourceXY, setImageSourceXY] = useState<string | null>(null);
@@ -66,7 +68,7 @@ const App: React.FC = () => {
       // Aydınlık Mod: Partikülleri Siyah Yap
       if (mode === 'light') {
           setParticleColor('#000000');
-          setUseImageColors(false); // Resim modundaysa bile siyaha çek ki görünsün
+          setUseImageColors(false); 
       } 
       // Karanlık Mod: Partikülleri Beyaz Yap
       else if (mode === 'dark') {
@@ -80,6 +82,13 @@ const App: React.FC = () => {
       if (mode === 'color' && extraData) {
           setCustomBgColor(extraData);
       }
+  };
+
+  // Yeni Arka Plan Resim Onay Fonksiyonu
+  const handleBgImageConfirm = (img: string, style: BgImageStyle) => {
+      setBgImage(img);
+      setBgImageStyle(style);
+      setBgMode('image');
   };
 
   const handleTextSubmit = (text: string) => {
@@ -194,9 +203,14 @@ const App: React.FC = () => {
                                 bgMode === 'color' ? customBgColor : 'transparent'
            }}
       >
-          {/* Resim Modu */}
+          {/* Resim Modu - Stil State'ine göre render */}
           {bgMode === 'image' && bgImage && (
-              <img src={bgImage} alt="background" className="w-full h-full object-cover opacity-100 transition-opacity duration-500" />
+              <img 
+                src={bgImage} 
+                alt="background" 
+                className="w-full h-full opacity-100 transition-opacity duration-500"
+                style={{ objectFit: bgImageStyle }}
+              />
           )}
 
           {/* Gradient (Disco) Modu */}
@@ -231,7 +245,7 @@ const App: React.FC = () => {
           }
       `}</style>
 
-      {/* CANVAS KATMANI (Layer 1) - explicit z-index to stay on top of background but below UI */}
+      {/* CANVAS KATMANI (Layer 1) */}
       <div className="absolute inset-0 z-10">
           <Experience 
             text={currentText} 
@@ -257,7 +271,7 @@ const App: React.FC = () => {
           />
       </div>
       
-      {/* UI KATMANI (Layer 2) - UIOverlay zaten z-50 ile en üstte */}
+      {/* UI KATMANI (Layer 2) */}
       <UIOverlay 
         onSubmit={handleTextSubmit} 
         onImageUpload={handleImageUpload}
@@ -298,6 +312,7 @@ const App: React.FC = () => {
         // Tema Propları
         bgMode={bgMode}
         onBgModeChange={handleBgModeChange}
+        onBgImageConfirm={handleBgImageConfirm} // Yeni Prop
         customBgColor={customBgColor}
       />
     </div>
