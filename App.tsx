@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Experience } from './components/Experience';
 import { UIOverlay } from './components/UIOverlay';
+import * as THREE from 'three';
 
 export type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury' | 'disco';
 export type AudioMode = 'none' | 'file' | 'mic';
@@ -8,11 +9,22 @@ export type AudioMode = 'none' | 'file' | 'mic';
 const App: React.FC = () => {
   const [currentText, setCurrentText] = useState<string>('');
   const [particleColor, setParticleColor] = useState<string>('#ffffff');
-  const [imageSource, setImageSource] = useState<string | null>(null);
+  
+  // Görüntü Kaynakları
+  const [imageSourceXY, setImageSourceXY] = useState<string | null>(null);
+  const [imageSourceYZ, setImageSourceYZ] = useState<string | null>(null);
+
   const [useImageColors, setUseImageColors] = useState<boolean>(false);
   const [depthIntensity, setDepthIntensity] = useState<number>(0); 
   const [isDrawing, setIsDrawing] = useState<boolean>(false);
   
+  // Çizim Ayarları
+  const [brushSize, setBrushSize] = useState<number>(10);
+  const [canvasRotation, setCanvasRotation] = useState<[number, number, number]>([0, 0, 0]);
+  
+  const [clearCanvasTrigger, setClearCanvasTrigger] = useState<number>(0);
+  const getDrawingDataRef = useRef<{ getXY: () => string, getYZ: () => string } | null>(null);
+
   // Efekt Presets
   const [activePreset, setActivePreset] = useState<PresetType>('none');
 
@@ -23,61 +35,85 @@ const App: React.FC = () => {
   // Ayarlar
   const [repulsionStrength, setRepulsionStrength] = useState<number>(50);
   const [repulsionRadius, setRepulsionRadius] = useState<number>(50);
-  const [particleCount, setParticleCount] = useState<number>(40000); // Varsayılan artırıldı
-  const [particleSpacing, setParticleSpacing] = useState<number>(0);
+  const [particleCount, setParticleCount] = useState<number>(40000); 
+  
+  // İsimlendirme Değişikliği ve Yeni Özellik
+  const [particleSize, setParticleSize] = useState<number>(20); // Eski particleSpacing -> particleSize
+  const [modelDensity, setModelDensity] = useState<number>(50); // Yeni: Model Sıkılığı
 
   const [isUIInteraction, setIsUIInteraction] = useState<boolean>(false);
 
-  // ESC Tuşu ile Efekti İptal Etme
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setActivePreset('none');
+        if (isDrawing) setIsDrawing(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [isDrawing]);
 
   const handleTextSubmit = (text: string) => {
     setCurrentText(text);
-    setImageSource(null);
+    setImageSourceXY(null);
+    setImageSourceYZ(null);
     setDepthIntensity(0);
     setIsDrawing(false);
+    setCanvasRotation([0, 0, 0]); 
   };
 
-  const handleImageUpload = (imgSrc: string, useOriginalColors: boolean) => {
-    setImageSource(imgSrc);
+  const handleDualImageUpload = (imgXY: string | null, imgYZ: string | null, useOriginalColors: boolean, keepRotation = false) => {
+    setImageSourceXY(imgXY);
+    setImageSourceYZ(imgYZ);
     setUseImageColors(useOriginalColors);
     setCurrentText('');
     
-    // Eğer çizimden geliyorsa (isDrawing true ise), hafif bir derinlik ver
     if (isDrawing) {
-        setDepthIntensity(1.0); // %10 ile başla (Eskiden 3.0/30% idi, çok sertti)
+        setDepthIntensity(0); 
         setIsDrawing(false);
+        if (!keepRotation) {
+            setCanvasRotation([0, 0, 0]);
+        }
     } else {
         setDepthIntensity(0);
+        setCanvasRotation([0, 0, 0]);
     }
   };
 
-  // Çizim modu başladığında
+  const handleImageUpload = (imgSrc: string, useOriginalColors: boolean) => {
+      handleDualImageUpload(imgSrc, null, useOriginalColors, false);
+  };
+
   const handleDrawingStart = () => {
     setCurrentText('');
-    setImageSource(null);
+    setImageSourceXY(null);
+    setImageSourceYZ(null);
     setUseImageColors(false);
-    setIsDrawing(true); // Çizim modunu aktif et (küreyi gizler)
+    setIsDrawing(true);
+    setParticleColor(particleColor); 
+    setCanvasRotation([0, 0, 0]);
+    setClearCanvasTrigger(prev => prev + 1);
+  };
+
+  const handleDrawingConfirm = () => {
+    if (getDrawingDataRef.current) {
+        const dataUrlXY = getDrawingDataRef.current.getXY();
+        const dataUrlYZ = getDrawingDataRef.current.getYZ();
+        handleDualImageUpload(dataUrlXY, dataUrlYZ, true, true);
+    }
   };
 
   const handleColorChange = (color: string) => {
     setParticleColor(color);
     setActivePreset('none'); 
-    if (imageSource) {
+    if ((imageSourceXY || imageSourceYZ) && !isDrawing) {
       setUseImageColors(false);
     }
   };
 
   const handleResetColors = () => {
-    if (imageSource) {
+    if (imageSourceXY || imageSourceYZ) {
       setUseImageColors(true);
     }
   };
@@ -87,11 +123,15 @@ const App: React.FC = () => {
     setAudioUrl(url);
   };
 
-  // HER ŞEYİ SIFIRLA
+  const handleClearCanvas = () => {
+      setClearCanvasTrigger(prev => prev + 1);
+  };
+
   const handleResetAll = () => {
     setCurrentText('');
     setParticleColor('#ffffff');
-    setImageSource(null);
+    setImageSourceXY(null);
+    setImageSourceYZ(null);
     setUseImageColors(false);
     setDepthIntensity(0);
     setActivePreset('none');
@@ -99,17 +139,26 @@ const App: React.FC = () => {
     setAudioUrl(null);
     setRepulsionStrength(50);
     setRepulsionRadius(50);
-    setParticleCount(40000); // Resetlenince de yüksek sayıya dön
-    setParticleSpacing(0);
+    setParticleCount(40000);
+    setParticleSize(20);
+    setModelDensity(50);
     setIsDrawing(false);
+    setCanvasRotation([0, 0, 0]);
   };
 
+  const rotateCanvasX = () => setCanvasRotation(prev => [prev[0] + Math.PI / 2, prev[1], prev[2]]);
+  const rotateCanvasY = () => setCanvasRotation(prev => [prev[0], prev[1] + Math.PI / 2, prev[2]]);
+  const rotateCanvasZ = () => setCanvasRotation(prev => [prev[0], prev[1], prev[2] + Math.PI / 2]);
+
   return (
-    <div className="relative w-full h-full bg-black">
-      {/* 3D Sahne */}
+    <div 
+      className="relative w-full h-full bg-black" 
+      onContextMenu={(e) => e.preventDefault()} 
+    >
       <Experience 
         text={currentText} 
-        image={imageSource}
+        imageXY={imageSourceXY}
+        imageYZ={imageSourceYZ}
         useImageColors={useImageColors}
         particleColor={particleColor} 
         disableInteraction={isUIInteraction}
@@ -117,25 +166,37 @@ const App: React.FC = () => {
         repulsionStrength={repulsionStrength}
         repulsionRadius={repulsionRadius}
         particleCount={particleCount}
-        particleSpacing={particleSpacing}
+        particleSize={particleSize}
+        modelDensity={modelDensity}
         activePreset={activePreset}
         audioMode={audioMode}
         audioUrl={audioUrl}
         isDrawing={isDrawing}
+        brushSize={brushSize}
+        getDrawingDataRef={getDrawingDataRef}
+        canvasRotation={canvasRotation}
+        clearCanvasTrigger={clearCanvasTrigger}
       />
       
-      {/* Kullanıcı Arayüzü */}
       <UIOverlay 
         onSubmit={handleTextSubmit} 
         onImageUpload={handleImageUpload}
         onDrawingStart={handleDrawingStart}
+        onDrawingConfirm={handleDrawingConfirm}
+        isDrawing={isDrawing}
+        brushSize={brushSize}
+        onBrushSizeChange={setBrushSize}
+        canvasRotation={canvasRotation}
+        onRotateX={rotateCanvasX}
+        onRotateY={rotateCanvasY}
+        onRotateZ={rotateCanvasZ}
         currentColor={particleColor}
         onColorChange={handleColorChange}
         onResetColors={handleResetColors}
         isOriginalColors={useImageColors}
         onInteractionStart={() => setIsUIInteraction(true)}
         onInteractionEnd={() => setIsUIInteraction(false)}
-        hasImage={!!imageSource}
+        hasImage={!!imageSourceXY || !!imageSourceYZ}
         depthIntensity={depthIntensity}
         onDepthChange={setDepthIntensity}
         repulsionStrength={repulsionStrength}
@@ -144,13 +205,16 @@ const App: React.FC = () => {
         onRadiusChange={setRepulsionRadius}
         particleCount={particleCount}
         onParticleCountChange={setParticleCount}
-        particleSpacing={particleSpacing}
-        onSpacingChange={setParticleSpacing}
+        particleSize={particleSize}
+        onParticleSizeChange={setParticleSize}
+        modelDensity={modelDensity}
+        onModelDensityChange={setModelDensity}
         activePreset={activePreset}
         onPresetChange={setActivePreset}
         onAudioChange={handleAudioChange}
         audioMode={audioMode}
         onResetAll={handleResetAll}
+        onClearCanvas={handleClearCanvas}
       />
     </div>
   );

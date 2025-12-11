@@ -11,7 +11,8 @@ type AudioMode = 'none' | 'file' | 'mic';
 
 interface MagicParticlesProps {
   text: string;
-  image: string | null;
+  imageXY: string | null;
+  imageYZ: string | null;
   useImageColors: boolean;
   color: string;
   disableMouseRepulsion: boolean;
@@ -19,17 +20,20 @@ interface MagicParticlesProps {
   repulsionStrength: number; 
   repulsionRadius: number; 
   particleCount: number; 
-  particleSpacing: number;
+  particleSize: number; 
+  modelDensity: number; 
   previousPositions: React.MutableRefObject<Float32Array | null>;
   activePreset: PresetType;
   audioMode: AudioMode;
   audioUrl: string | null;
   isDrawing: boolean;
+  canvasRotation?: [number, number, number];
 }
 
 export const MagicParticles: React.FC<MagicParticlesProps> = ({ 
   text, 
-  image, 
+  imageXY,
+  imageYZ,
   useImageColors, 
   color, 
   disableMouseRepulsion, 
@@ -37,12 +41,14 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   repulsionStrength,
   repulsionRadius,
   particleCount,
-  particleSpacing,
+  particleSize,
+  modelDensity,
   previousPositions,
   activePreset,
   audioMode,
   audioUrl,
-  isDrawing
+  isDrawing,
+  canvasRotation = [0, 0, 0]
 }) => {
   const pointsRef = useRef<THREE.Points>(null);
   const { camera, gl } = useThree();
@@ -58,6 +64,22 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
 
   const boundsRef = useRef<{minX: number, maxX: number}>({ minX: -5, maxX: 5 });
+  const randomnessRef = useRef<Float32Array | null>(null);
+  
+  // Cache for Normalized Shapes (0-1 range) to prevent reprocessing on density change
+  const normalizedShapeRef = useRef<{
+      targets: Float32Array | null,
+      zOffsets: Float32Array | null
+  }>({ targets: null, zOffsets: null });
+
+  // Density Scale Calc
+  const densityScale = useMemo(() => {
+     if (modelDensity <= 50) {
+         return 2.5 - (modelDensity / 50) * 1.5;
+     } else {
+         return 1.0 - ((modelDensity - 50) / 50) * 0.6;
+     }
+  }, [modelDensity]);
 
   // --- Audio Setup ---
   useEffect(() => {
@@ -121,38 +143,49 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     };
   }, [audioMode, audioUrl]);
 
+  // --- Sphere Positions Calculation ---
   const spherePositions = useMemo(() => {
     const positions = new Float32Array(particleCount * 3);
     const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+    // Base radius (density applied later for sphere optimization)
+    // Actually apply density here for sphere since it's procedural
+    const effectiveRadius = SPHERE_RADIUS * densityScale;
 
     for (let i = 0; i < particleCount; i++) {
       const y = 1 - (i / (particleCount - 1)) * 2; 
       const radius = Math.sqrt(1 - y * y);
       const theta = goldenAngle * i;
 
-      const x = Math.cos(theta) * radius * SPHERE_RADIUS;
-      const z = Math.sin(theta) * radius * SPHERE_RADIUS;
-      const yPos = y * SPHERE_RADIUS;
+      const x = Math.cos(theta) * radius * effectiveRadius;
+      const z = Math.sin(theta) * radius * effectiveRadius;
+      const yPos = y * effectiveRadius;
 
       positions[i * 3] = x;
       positions[i * 3 + 1] = yPos;
       positions[i * 3 + 2] = z;
     }
-    boundsRef.current = { minX: -SPHERE_RADIUS, maxX: SPHERE_RADIUS };
+    boundsRef.current = { minX: -effectiveRadius, maxX: effectiveRadius };
+    
+    if (!randomnessRef.current || randomnessRef.current.length !== particleCount) {
+        randomnessRef.current = new Float32Array(particleCount);
+        for(let i=0; i<particleCount; i++) {
+            randomnessRef.current[i] = (Math.random() - 0.5);
+        }
+    }
     return positions;
-  }, [particleCount]);
+  }, [particleCount, densityScale]);
 
+  // --- Initialize Simulation Data ---
   const simulationData = useMemo(() => {
     const current = new Float32Array(particleCount * 3);
     const targets = new Float32Array(particleCount * 3);
     
     targets.set(spherePositions);
-    current.set(spherePositions);
-
-    if (previousPositions && previousPositions.current) {
-        const prev = previousPositions.current;
-        const copyLength = Math.min(prev.length, current.length);
-        current.set(prev.subarray(0, copyLength), 0);
+    
+    if (previousPositions && previousPositions.current && previousPositions.current.length === particleCount * 3) {
+        current.set(previousPositions.current);
+    } else {
+        current.set(spherePositions);
     }
 
     return {
@@ -160,299 +193,322 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       velocities: new Float32Array(particleCount * 3),
       targets,
       colors: new Float32Array(particleCount * 3),
-      zOffsets: new Float32Array(particleCount),
+      zOffsets: new Float32Array(particleCount * 3), 
       originalColors: new Float32Array(particleCount * 3)
     };
-  }, [particleCount, spherePositions, previousPositions]);
+  }, [particleCount]);
 
-  // --- Event Listeners ---
+  // --- Sync Sphere Targets when Density Changes ---
+  useEffect(() => {
+      if (!text && !imageXY && !imageYZ && !isProcessing) {
+          simulationData.targets.set(spherePositions);
+          // Reset Normalized Cache when going back to sphere
+          normalizedShapeRef.current.targets = null;
+      }
+  }, [spherePositions, text, imageXY, imageYZ, isProcessing, simulationData]);
+
+  // --- DENSITY CHANGE OPTIMIZATION (Prevent Explosion) ---
+  // Sadece densityScale değiştiğinde ve elimizde cachelenmiş normalize data varsa
+  // Görüntüyü baştan işlemek yerine sadece scale çarpanını güncelle.
+  useEffect(() => {
+      if ((imageXY || imageYZ || text) && normalizedShapeRef.current.targets) {
+          const normTargets = normalizedShapeRef.current.targets;
+          const currentTargets = simulationData.targets;
+          const count = particleCount;
+          // Scale factor: Base Scale * Density Scale
+          const scale = (SPHERE_RADIUS * 2.0) * densityScale; 
+
+          for(let i=0; i < count; i++) {
+              currentTargets[i*3]     = normTargets[i*3] * scale;
+              currentTargets[i*3 + 1] = normTargets[i*3 + 1] * scale;
+              currentTargets[i*3 + 2] = normTargets[i*3 + 2] * scale;
+          }
+      }
+  }, [densityScale, imageXY, imageYZ, text, particleCount, simulationData]);
+
+
+  // Event Listeners (Mouse Interaction)
   useEffect(() => {
     const handlePointerDown = (e: PointerEvent) => {
       if (e.button === 2) {
         isRightClicking.current = true;
       }
-      
       if (disableMouseRepulsion) return;
-
       if (e.button === 0) { 
         if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
             audioContextRef.current.resume();
         }
-
         const { velocities } = simulationData;
-        const explodeForce = 2.0 + (repulsionStrength / 100) * 8.0; 
-        
+        const explodeForce = 3.0 + (repulsionStrength / 100) * 10.0;
         for (let i = 0; i < particleCount * 3; i++) {
             let mod = 1.0;
             if (activePreset === 'water') mod = 0.5; 
             if (activePreset === 'electric') mod = 1.5; 
             if (activePreset === 'mercury') mod = 0.3; 
             if (activePreset === 'disco') mod = 1.2;
-            
             velocities[i] += (Math.random() - 0.5) * explodeForce * mod; 
         }
       }
     };
 
     const handlePointerUp = () => { isRightClicking.current = false; };
-
     gl.domElement.addEventListener('pointerdown', handlePointerDown);
     gl.domElement.addEventListener('pointerup', handlePointerUp);
-
     return () => {
       gl.domElement.removeEventListener('pointerdown', handlePointerDown);
       gl.domElement.removeEventListener('pointerup', handlePointerUp);
     };
   }, [gl.domElement, simulationData, disableMouseRepulsion, repulsionStrength, particleCount, activePreset]);
 
-  // --- Reset / Init ---
-  useEffect(() => {
-    if (!text && !image && !isProcessing) {
-        simulationData.targets.set(spherePositions);
-        simulationData.zOffsets.fill(0);
-        boundsRef.current = { minX: -SPHERE_RADIUS, maxX: SPHERE_RADIUS };
-    }
-  }, [text, image, spherePositions, simulationData, isProcessing]);
-
-  // --- Color Management ---
+  // Color Updates
   useEffect(() => {
     const { colors, originalColors } = simulationData;
-
     if (activePreset === 'none') {
-        if (image && useImageColors) {
+        if ((imageXY || imageYZ) && useImageColors) {
             colors.set(originalColors);
         } else {
             const c = new THREE.Color(color);
             for(let i=0; i<particleCount; i++) {
-              const r = c.r;
-              const g = c.g;
-              const b = c.b;
-
-              colors[i*3] = r;
-              colors[i*3+1] = g;
-              colors[i*3+2] = b;
-
-              originalColors[i*3] = r;
-              originalColors[i*3+1] = g;
-              originalColors[i*3+2] = b;
+              const r = c.r; const g = c.g; const b = c.b;
+              colors[i*3] = r; colors[i*3+1] = g; colors[i*3+2] = b;
+              originalColors[i*3] = r; originalColors[i*3+1] = g; originalColors[i*3+2] = b;
             }
         }
         if (pointsRef.current) {
             pointsRef.current.geometry.attributes.color.needsUpdate = true;
         }
     }
-  }, [color, useImageColors, image, simulationData, particleCount, activePreset]);
+  }, [color, useImageColors, imageXY, imageYZ, simulationData, particleCount, activePreset]);
 
-  // --- Text Mesh Generation ---
+  // --- Text Processing ---
   useEffect(() => {
-    if (image || isProcessing) return;
+    if (imageXY || imageYZ || isProcessing) return;
     if (!text || text.trim() === '') return;
 
+    setIsProcessing(true);
     const loader = new FontLoader();
     loader.load(FONT_URL, (font) => {
-      const fontSize = 2;
-      const shapes = font.generateShapes(text, fontSize);
-      if (shapes.length === 0) {
-          simulationData.targets.set(spherePositions);
-          return;
-      }
-      const geometry = new THREE.ExtrudeGeometry(shapes, {
-        depth: 1.5, bevelEnabled: true, bevelThickness: 0.5, bevelSize: 0.2, bevelSegments: 4, curveSegments: 8
-      });
-      geometry.computeBoundingBox();
-      const bbox = geometry.boundingBox!;
-      const xMid = -0.5 * (bbox.max.x - bbox.min.x);
-      const yMid = -0.5 * (bbox.max.y - bbox.min.y);
-      const zMid = -0.5 * (bbox.max.z - bbox.min.z);
-      geometry.translate(xMid, yMid, zMid);
-      
-      boundsRef.current = { minX: bbox.min.x + xMid, maxX: bbox.max.x + xMid };
-
-      const maxDim = Math.max(bbox.max.x - bbox.min.x, bbox.max.y - bbox.min.y);
-      const targetSize = SPHERE_RADIUS * 2.2; 
-      const scaleFactor = targetSize / (maxDim || 1);
-      geometry.scale(scaleFactor, scaleFactor, scaleFactor);
-      
-      boundsRef.current.minX *= scaleFactor;
-      boundsRef.current.maxX *= scaleFactor;
-
-      if (geometry.index) geometry.toNonIndexed();
-      const posAttribute = geometry.attributes.position;
-      const triangleCount = posAttribute.count / 3;
-
-      if (triangleCount === 0) { geometry.dispose(); return; }
-
-      const triangleAreas = [];
-      let totalArea = 0;
-      const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
-      const va = new THREE.Vector3(), vb = new THREE.Vector3();
-
-      for (let i = 0; i < triangleCount; i++) {
-        const i3 = i * 3;
-        a.fromBufferAttribute(posAttribute, i3);
-        b.fromBufferAttribute(posAttribute, i3 + 1);
-        c.fromBufferAttribute(posAttribute, i3 + 2);
-        va.subVectors(b, a);
-        vb.subVectors(c, a);
-        const area = va.cross(vb).length() * 0.5;
-        triangleAreas.push(area);
-        totalArea += area;
-      }
-
-      const cumulativeAreas = new Float32Array(triangleCount);
-      let acc = 0;
-      for (let i = 0; i < triangleCount; i++) { acc += triangleAreas[i]; cumulativeAreas[i] = acc; }
-
-      const newTargets = new Float32Array(particleCount * 3);
-      const tempTarget = new THREE.Vector3();
-
-      for (let i = 0; i < particleCount; i++) {
-        const r = Math.random() * totalArea;
-        let left = 0, right = triangleCount - 1, selectedTriangleIndex = 0;
-        while (left <= right) {
-          const mid = Math.floor((left + right) / 2);
-          if (cumulativeAreas[mid] >= r) { selectedTriangleIndex = mid; right = mid - 1; } 
-          else { left = mid + 1; }
-        }
-        const i3 = selectedTriangleIndex * 3;
-        a.fromBufferAttribute(posAttribute, i3);
-        b.fromBufferAttribute(posAttribute, i3 + 1);
-        c.fromBufferAttribute(posAttribute, i3 + 2);
-        let r1 = Math.random(), r2 = Math.random();
-        if (r1 + r2 > 1) { r1 = 1 - r1; r2 = 1 - r2; }
-        tempTarget.copy(a).addScaledVector(b.clone().sub(a), r1).addScaledVector(c.clone().sub(a), r2);
-        newTargets[i * 3] = tempTarget.x;
-        newTargets[i * 3 + 1] = tempTarget.y;
-        newTargets[i * 3 + 2] = tempTarget.z;
-      }
-      simulationData.targets.set(newTargets);
-      simulationData.zOffsets.fill(0); 
-      geometry.dispose();
-    }, undefined, (err) => { console.error("Font hatası:", err); simulationData.targets.set(spherePositions); });
-  }, [text, image, spherePositions, simulationData, particleCount, isProcessing]);
-
-  // --- Image Processing ---
-  useEffect(() => {
-    if (!image) return;
-    
-    setIsProcessing(true);
-
-    const img = new Image();
-    
-    img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const maxSize = 1024; 
-        let w = img.width; let h = img.height;
-        if (w > h) { if (w > maxSize) { h *= maxSize / w; w = maxSize; } } 
-        else { if (h > maxSize) { w *= maxSize / h; h = maxSize; } }
-        canvas.width = w; canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) { setIsProcessing(false); return; }
-        
-        ctx.drawImage(img, 0, 0, w, h);
-        const imgData = ctx.getImageData(0, 0, w, h);
-        const data = imgData.data;
-        const validPixels = [];
-        
-        for (let y = 0; y < h; y += 2) {
-            for (let x = 0; x < w; x += 2) {
-                const index = (y * w + x) * 4;
-                if (data[index + 3] > 10) { 
-                    validPixels.push({
-                        x: (x / w) - 0.5, y: 0.5 - (y / h), 
-                        r: data[index]/255, g: data[index+1]/255, b: data[index+2]/255,
-                        luminance: (0.2126 * data[index] + 0.7152 * data[index+1] + 0.0722 * data[index+2]) / 255
-                    });
-                }
-            }
-        }
-
-        if (validPixels.length === 0) {
-            console.warn("Geçerli piksel bulunamadı");
+        const fontSize = 2;
+        const shapes = font.generateShapes(text, fontSize);
+        if (shapes.length === 0) {
+            simulationData.targets.set(spherePositions);
             setIsProcessing(false);
             return;
         }
+        const geometry = new THREE.ExtrudeGeometry(shapes, { depth: 1.5, bevelEnabled: true });
+        geometry.computeBoundingBox();
+        const bbox = geometry.boundingBox!;
+        const xMid = -0.5 * (bbox.max.x - bbox.min.x);
+        const yMid = -0.5 * (bbox.max.y - bbox.min.y);
+        const zMid = -0.5 * (bbox.max.z - bbox.min.z);
+        geometry.translate(xMid, yMid, zMid);
         
-        const aspect = w / h;
-        const targetScale = SPHERE_RADIUS * 2.0; 
+        const maxDim = Math.max(bbox.max.x - bbox.min.x, bbox.max.y - bbox.min.y);
+        // Normalize Scale Logic: We want to store "Unit" vectors (approx)
+        const normalizeScale = 1 / (maxDim || 1);
+        geometry.scale(normalizeScale, normalizeScale, normalizeScale);
+
+        if (geometry.index) geometry.toNonIndexed();
+        const posAttribute = geometry.attributes.position;
+        const triangleCount = posAttribute.count / 3;
         
-        const newTargets = new Float32Array(particleCount * 3);
+        if (triangleCount === 0) { geometry.dispose(); setIsProcessing(false); return; }
+
+        const triangleAreas = [];
+        let totalArea = 0;
+        const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+        const va = new THREE.Vector3(), vb = new THREE.Vector3();
+
+        for (let i = 0; i < triangleCount; i++) {
+            const i3 = i * 3;
+            a.fromBufferAttribute(posAttribute, i3);
+            b.fromBufferAttribute(posAttribute, i3 + 1);
+            c.fromBufferAttribute(posAttribute, i3 + 2);
+            va.subVectors(b, a);
+            vb.subVectors(c, a);
+            const area = va.cross(vb).length() * 0.5;
+            triangleAreas.push(area);
+            totalArea += area;
+        }
+
+        const cumulativeAreas = new Float32Array(triangleCount);
+        let acc = 0;
+        for (let i = 0; i < triangleCount; i++) { acc += triangleAreas[i]; cumulativeAreas[i] = acc; }
+
+        // Cache normalized data
+        const normTargets = new Float32Array(particleCount * 3);
+        const tempTarget = new THREE.Vector3();
+
+        for (let i = 0; i < particleCount; i++) {
+            const r = Math.random() * totalArea;
+            let left = 0, right = triangleCount - 1, selectedTriangleIndex = 0;
+            while (left <= right) {
+                const mid = Math.floor((left + right) / 2);
+                if (cumulativeAreas[mid] >= r) { selectedTriangleIndex = mid; right = mid - 1; } 
+                else { left = mid + 1; }
+            }
+            const i3 = selectedTriangleIndex * 3;
+            a.fromBufferAttribute(posAttribute, i3);
+            b.fromBufferAttribute(posAttribute, i3 + 1);
+            c.fromBufferAttribute(posAttribute, i3 + 2);
+            let r1 = Math.random(), r2 = Math.random();
+            if (r1 + r2 > 1) { r1 = 1 - r1; r2 = 1 - r2; }
+            tempTarget.copy(a).addScaledVector(b.clone().sub(a), r1).addScaledVector(c.clone().sub(a), r2);
+            
+            normTargets[i * 3] = tempTarget.x;
+            normTargets[i * 3 + 1] = tempTarget.y;
+            normTargets[i * 3 + 2] = tempTarget.z;
+        }
+
+        normalizedShapeRef.current.targets = normTargets;
+        simulationData.zOffsets.fill(0); 
+        
+        // Initial Apply
+        const currentTargets = simulationData.targets;
+        const scale = (SPHERE_RADIUS * 2.2) * densityScale;
+        for(let i=0; i<particleCount*3; i++) {
+            currentTargets[i] = normTargets[i] * scale;
+        }
+
+        geometry.dispose();
+        setIsProcessing(false);
+    });
+  }, [text, particleCount]); // removed densityScale dependency (handled by separate effect)
+
+  // --- Dual Image Processing ---
+  useEffect(() => {
+    if (!imageXY && !imageYZ) return;
+    
+    setIsProcessing(true);
+
+    const processImage = (src: string | null): Promise<any[]> => {
+        return new Promise((resolve) => {
+            if (!src) return resolve([]);
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const maxSize = 512; 
+                let w = img.width; let h = img.height;
+                if (w > h) { if (w > maxSize) { h *= maxSize / w; w = maxSize; } } 
+                else { if (h > maxSize) { w *= maxSize / h; h = maxSize; } }
+                canvas.width = w; canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return resolve([]);
+                
+                ctx.drawImage(img, 0, 0, w, h);
+                const imgData = ctx.getImageData(0, 0, w, h);
+                const data = imgData.data;
+                const pixels = [];
+                for (let y = 0; y < h; y += 2) {
+                    for (let x = 0; x < w; x += 2) {
+                        const index = (y * w + x) * 4;
+                        if (data[index + 3] > 10) { 
+                            pixels.push({
+                                x: (x / w) - 0.5, y: 0.5 - (y / h), 
+                                r: data[index]/255, g: data[index+1]/255, b: data[index+2]/255,
+                            });
+                        }
+                    }
+                }
+                resolve(pixels);
+            };
+            img.onerror = () => resolve([]);
+            img.src = src;
+        });
+    };
+
+    Promise.all([processImage(imageXY), processImage(imageYZ)]).then(([pixelsXY, pixelsYZ]) => {
+        const totalPixels = pixelsXY.length + pixelsYZ.length;
+        if (totalPixels === 0) { setIsProcessing(false); return; }
+
+        const normTargets = new Float32Array(particleCount * 3);
         const newColors = new Float32Array(particleCount * 3);
         const newOriginalColors = new Float32Array(particleCount * 3);
-        const newZOffsets = new Float32Array(particleCount);
-        const defaultColorRGB = new THREE.Color(color);
+        const newZOffsets = new Float32Array(particleCount * 3); 
         
-        let minX = Infinity, maxX = -Infinity;
+        const defaultColorRGB = new THREE.Color(color);
+        const rotationEuler = new THREE.Euler(...canvasRotation);
+        const tempVec = new THREE.Vector3();
 
         for(let i = 0; i < particleCount; i++) {
-            const pixel = validPixels[Math.floor(Math.random() * validPixels.length)];
-            const pX = pixel.x * targetScale;
-            const pY = pixel.y * targetScale;
+            const useXY = Math.random() < (pixelsXY.length / (totalPixels || 1));
+            const sourcePool = useXY ? pixelsXY : pixelsYZ;
             
-            let finalX = 0, finalY = 0;
-            if (aspect > 1) { finalX = pX * aspect; finalY = pY; } 
-            else { finalX = pX; finalY = pY / aspect; }
+            if (sourcePool.length === 0) {
+                 const fallback = useXY ? pixelsYZ : pixelsXY;
+                 if (fallback.length === 0) continue;
+            }
+            const activeSource = (sourcePool.length > 0) ? sourcePool : (useXY ? pixelsYZ : pixelsXY);
             
-            if (finalX < minX) minX = finalX;
-            if (finalX > maxX) maxX = finalX;
+            const pixel = activeSource.length > 0 
+                ? activeSource[Math.floor(Math.random() * activeSource.length)]
+                : { x:0, y:0, r:1, g:1, b:1 }; 
 
-            newTargets[i * 3] = finalX; 
-            newTargets[i * 3 + 1] = finalY;
+            const pX = pixel.x; // Normalized -0.5 to 0.5
+            const pY = pixel.y; // Normalized -0.5 to 0.5
 
-            // --- YENİ Z-OFSET ALGORİTMASI ---
-            const luminanceDepth = (pixel.luminance - 0.5); 
-            // Daha fazla hacim için rastgeleliği artırdık (0.2 -> 0.5)
-            // Bu sayede pikseller sadece bir yüzeyde değil, bir bulut hacmi içinde dağılır.
-            const randomDepth = (Math.random() - 0.5) * 0.5; 
-            newZOffsets[i] = luminanceDepth + randomDepth; 
+            if (useXY && sourcePool.length > 0) {
+                tempVec.set(pX, pY, 0);
+                newZOffsets[i*3] = 0; newZOffsets[i*3+1] = 0; newZOffsets[i*3+2] = 1; 
+            } else {
+                tempVec.set(0, pY, pX); 
+                newZOffsets[i*3] = 1; newZOffsets[i*3+1] = 0; newZOffsets[i*3+2] = 0;
+            }
+
+            // Store normalized unit vector rotated
+            tempVec.applyEuler(rotationEuler);
             
-            // Başlangıçta 0'da dursunlar
-            newTargets[i * 3 + 2] = 0; 
-            
+            const normal = new THREE.Vector3(newZOffsets[i*3], newZOffsets[i*3+1], newZOffsets[i*3+2]);
+            normal.applyEuler(rotationEuler);
+            newZOffsets[i*3] = normal.x; newZOffsets[i*3+1] = normal.y; newZOffsets[i*3+2] = normal.z;
+
+            normTargets[i * 3] = tempVec.x; 
+            normTargets[i * 3 + 1] = tempVec.y;
+            normTargets[i * 3 + 2] = tempVec.z;
+
             newOriginalColors[i * 3] = pixel.r; newOriginalColors[i * 3 + 1] = pixel.g; newOriginalColors[i * 3 + 2] = pixel.b;
-            if (useImageColors) { newColors[i * 3] = pixel.r; newColors[i * 3 + 1] = pixel.g; newColors[i * 3 + 2] = pixel.b; } 
-            else { newColors[i * 3] = defaultColorRGB.r; newColors[i * 3 + 1] = defaultColorRGB.g; newColors[i * 3 + 2] = defaultColorRGB.b; }
+            if (useImageColors) { 
+                newColors[i * 3] = pixel.r; newColors[i * 3 + 1] = pixel.g; newColors[i * 3 + 2] = pixel.b; 
+            } else { 
+                newColors[i * 3] = defaultColorRGB.r; newColors[i * 3 + 1] = defaultColorRGB.g; newColors[i * 3 + 2] = defaultColorRGB.b; 
+            }
         }
         
-        boundsRef.current = { minX, maxX };
+        normalizedShapeRef.current.targets = normTargets;
 
-        simulationData.targets.set(newTargets);
+        // Apply Initial Scale
+        const currentTargets = simulationData.targets;
+        const scale = (SPHERE_RADIUS * 2.0) * densityScale;
+        for(let i=0; i<particleCount*3; i++) {
+            currentTargets[i] = normTargets[i] * scale;
+        }
+
         simulationData.colors.set(newColors);
         simulationData.zOffsets.set(newZOffsets);
         simulationData.originalColors.set(newOriginalColors);
         if (pointsRef.current) pointsRef.current.geometry.attributes.color.needsUpdate = true;
         
         setIsProcessing(false);
-    };
 
-    img.onerror = () => {
-        console.error("Resim yükleme hatası");
-        setIsProcessing(false);
-    }
+    });
     
-    img.src = image;
-    
-  }, [image, simulationData, particleCount, color, useImageColors]); 
+  }, [imageXY, imageYZ, simulationData, particleCount, color, useImageColors, canvasRotation]); // Removed densityScale
 
   // --- Animation Loop ---
   useFrame((state) => {
-    // Çizim modundaysak veya işleniyorsa animasyonu durdur
-    if (isDrawing || isProcessing || !pointsRef.current) return;
+    // Processing sırasında return etmiyoruz ki patlama (unmount) olmasın.
+    // Ancak veri tam değilse (ilk yükleme) zaten targets 0 gelir veya eski data kalır, sorun yok.
+    if (isDrawing || !pointsRef.current) return;
 
-    // AUDIO VERİSİNİ AL
     let isAudioActive = audioMode !== 'none';
     let avgVolume = 0;
 
     if (isAudioActive && analyserRef.current && dataArrayRef.current) {
         analyserRef.current.getByteFrequencyData(dataArrayRef.current);
-        
         let sum = 0;
         const len = dataArrayRef.current.length;
-        for(let k=0; k < len; k++) {
-            sum += dataArrayRef.current[k];
-        }
+        for(let k=0; k < len; k++) { sum += dataArrayRef.current[k]; }
         avgVolume = sum / len;
-        
         if (avgVolume < 5) isAudioActive = false;
     } else {
         isAudioActive = false;
@@ -462,76 +518,39 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     const positionsAttribute = pointsRef.current.geometry.attributes.position;
     const colorsAttribute = pointsRef.current.geometry.attributes.color;
     
-    // --- MOUSE INTERACTION ---
     const pointer = state.pointer;
     const isInsideCanvas = Math.abs(pointer.x) <= 1.05 && Math.abs(pointer.y) <= 1.05;
 
-    let interactionTarget = new THREE.Vector3();
     let hasInteractionTarget = false;
+    const rayOrigin = new THREE.Vector3();
+    const rayDir = new THREE.Vector3();
 
     if (isInsideCanvas && !disableMouseRepulsion && !isRightClicking.current && repulsionStrength > 0) {
         state.raycaster.setFromCamera(pointer, camera);
-        const ray = state.raycaster.ray;
-
-        if (!text && !image) {
-            const O = ray.origin;
-            const D = ray.direction;
-            const rSq = SPHERE_RADIUS * SPHERE_RADIUS;
-            const b = 2 * O.dot(D);
-            const c = O.lengthSq() - rSq;
-            const delta = b * b - 4 * c;
-
-            if (delta >= 0) {
-                const sqrtDelta = Math.sqrt(delta);
-                const t1 = (-b - sqrtDelta) / 2;
-                const t2 = (-b + sqrtDelta) / 2;
-                let t = t1 < t2 ? t1 : t2; 
-                if (t < 0) t = t2; 
-                
-                if (t > 0) {
-                    interactionTarget.copy(O).addScaledVector(D, t);
-                    hasInteractionTarget = true;
-                }
-            }
-        }
-
-        if (!hasInteractionTarget) {
-             const t = -ray.origin.z / ray.direction.z;
-             if (t > 0) {
-                 interactionTarget.copy(ray.origin).addScaledVector(ray.direction, t);
-                 hasInteractionTarget = true;
-             }
-        }
+        // Interaction için sadece Ray'in Origin ve Direction'ını saklıyoruz
+        rayOrigin.copy(state.raycaster.ray.origin);
+        rayDir.copy(state.raycaster.ray.direction).normalize();
+        hasInteractionTarget = true;
     }
 
-    // FİZİK AYARLARI
     let springStrength = 0.05;
     let friction = 0.94;
     
-    // Resim modundaysak ve etkileşim konfigürasyonunu iyileştirmek için yaylanmayı azalt
-    // Bu, partiküllerin fare itişine daha uzun süre tepki vermesini sağlar (hemen geri dönmezler)
-    if (image) {
-        springStrength = 0.03; 
-    }
-    
-    if (isAudioActive) {
-        springStrength = 0.15; 
-        friction = 0.80;      
-    }
-
+    if (imageXY || imageYZ) { springStrength = 0.03; }
+    if (isAudioActive) { springStrength = 0.15; friction = 0.80; }
     if (activePreset === 'water') { springStrength = 0.02; friction = 0.96; } 
-    else if (activePreset === 'mercury') { springStrength = 0.08; friction = 0.90; } 
-    else if (activePreset === 'electric') { springStrength = 0.1; friction = 0.85; }
-    else if (activePreset === 'disco') { springStrength = 0.06; friction = 0.92; }
+    if (activePreset === 'electric') { springStrength = 0.1; friction = 0.85; }
 
     const dynamicRepulsionRadius = 1.0 + (repulsionRadius / 100) * 5.0; 
     const repulsionForce = (repulsionStrength / 50.0);
     const time = state.clock.elapsedTime;
-    
-    const { minX, maxX } = boundsRef.current;
-    const width = maxX - minX || 1;
     const bufferLength = dataArrayRef.current ? dataArrayRef.current.length : 1;
-    const discoColor = new THREE.Color();
+
+    // Reuse vectors to prevent GC
+    const p = new THREE.Vector3();
+    const vLine = new THREE.Vector3();
+    const projected = new THREE.Vector3();
+    const distVec = new THREE.Vector3();
 
     for (let i = 0; i < particleCount; i++) {
       const ix = i * 3;
@@ -548,171 +567,123 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       
       let tx = targets[ix];
       let ty = targets[iy];
-      
       let tz = targets[iz];
-      if (image) {
-          tz += zOffsets[i] * depthIntensity;
-      }
 
-      let freqValue = 0;
-
-      if (isAudioActive && dataArrayRef.current) {
-          let binIndex = 0;
+      if (imageXY || imageYZ) {
+          const nx = zOffsets[ix]; const ny = zOffsets[iy]; const nz = zOffsets[iz];
+          const rnd = randomnessRef.current ? randomnessRef.current[i] : 0;
+          const thickness = depthIntensity * 4.0; 
+          tx += nx * rnd * thickness; ty += ny * rnd * thickness; tz += nz * rnd * thickness;
           
-          if (!text && !image) {
-              binIndex = i % (bufferLength / 2); 
-          } else {
-              let normalizedX = (tx - minX) / width;
-              if (normalizedX < 0) normalizedX = 0;
-              if (normalizedX > 1) normalizedX = 1;
-              const activeSpectrumRatio = 0.4; 
-              const maxActiveBin = Math.floor(bufferLength * activeSpectrumRatio);
-              binIndex = Math.floor(normalizedX * maxActiveBin);
-              if (binIndex >= bufferLength) binIndex = bufferLength - 1;
+          if (isAudioActive && dataArrayRef.current) {
+              const binIndex = i % (bufferLength / 2);
+              const rawVal = dataArrayRef.current[binIndex] / 255.0;
+              const audioSpike = rawVal * 4.0;
+              tx += nx * audioSpike; ty += ny * audioSpike; tz += nz * audioSpike;
           }
-
-          const rawVal = dataArrayRef.current[binIndex] / 255.0;
-          freqValue = rawVal;
-          const isBass = binIndex < bufferLength * 0.1;
-          const boost = isBass ? 1.5 : 1.0; 
-          
-          if (!text && !image) {
-              const spike = rawVal * 3.0 * boost;
-              const len = Math.sqrt(tx*tx + ty*ty + tz*tz) || 1;
-              tx += (tx / len) * spike;
-              ty += (ty / len) * spike;
-              tz += (tz / len) * spike;
-          } else {
-              tz += rawVal * 4.0 * boost;
-          }
+      } else if (isAudioActive && dataArrayRef.current) {
+         const binIndex = i % (bufferLength / 2);
+         const rawVal = dataArrayRef.current[binIndex] / 255.0;
+         const spike = rawVal * 3.0;
+         const len = Math.sqrt(tx*tx + ty*ty + tz*tz) || 1;
+         tx += (tx/len) * spike; ty += (ty/len) * spike; tz += (tz/len) * spike;
       }
 
       vx += (tx - px) * springStrength;
       vy += (ty - py) * springStrength;
       vz += (tz - pz) * springStrength;
-
+      
       if (activePreset === 'fire') {
-         vy += 0.005 + Math.random() * 0.005; 
-         vx += (Math.random() - 0.5) * 0.01;
-      } 
+         const noise = Math.sin(px * 0.5 + time * 2) * Math.cos(pz * 0.5 + time);
+         vy += 0.02 + noise * 0.01;
+         if (py > 6) { current[iy] = -6; }
+      }
       else if (activePreset === 'water') {
-         vz += Math.sin(time * 2 + px * 0.5) * 0.002;
-         vy += Math.cos(time * 1.5 + pz * 0.5) * 0.001;
+        vy += Math.sin(px + time) * 0.01;
       }
       else if (activePreset === 'electric') {
-         if (Math.random() > 0.95) {
-             vx += (Math.random() - 0.5) * 0.2;
-             vy += (Math.random() - 0.5) * 0.2;
-             vz += (Math.random() - 0.5) * 0.2;
-         }
-      }
-      else if (activePreset === 'disco') {
-         vx += Math.sin(time * 3 + py * 0.5) * 0.001;
-         vy += Math.cos(time * 2 + px * 0.5) * 0.001;
+          vx += (Math.random() - 0.5) * 0.1; vy += (Math.random() - 0.5) * 0.1; vz += (Math.random() - 0.5) * 0.1;
       }
 
       if (hasInteractionTarget) {
-        const dx = px - interactionTarget.x;
-        const dy = py - interactionTarget.y;
-        const dz = pz - interactionTarget.z;
+        // --- NEW INTERACTION LOGIC: RAY-POINT DISTANCE ---
+        // Calculate distance from Particle(P) to the Infinite Line defined by Ray(Origin, Direction)
+        // Vector from RayOrigin to Particle
+        p.set(px, py, pz);
+        vLine.subVectors(p, rayOrigin);
+        
+        // Projection length of vLine onto RayDirection
+        const t = vLine.dot(rayDir);
+        
+        // Closest point on the line to the particle
+        projected.copy(rayOrigin).addScaledVector(rayDir, t);
+        
+        // Perpendicular distance vector (from line to particle)
+        distVec.subVectors(p, projected);
+        
+        const distSq = distVec.lengthSq();
+        const radiusSq = dynamicRepulsionRadius * dynamicRepulsionRadius;
 
-        const distSq = dx*dx + dy*dy + dz*dz;
-
-        if (distSq < dynamicRepulsionRadius * dynamicRepulsionRadius) {
+        if (distSq < radiusSq) {
             const dist = Math.sqrt(distSq);
-            let force = (1 - dist / dynamicRepulsionRadius) * repulsionForce;
+            // Force decreases with distance from the ray core
+            const forceFactor = (1 - dist / dynamicRepulsionRadius) * repulsionForce;
             
-            if (activePreset === 'electric') force *= 2.0;
-            else if (activePreset === 'mercury') force *= 0.5;
-
-            let nx, ny, nz;
+            // Push away from the line
+            let nx = 0, ny = 0, nz = 0;
             if (dist > 0.0001) {
-                nx = dx / dist;
-                ny = dy / dist;
-                nz = dz / dist;
+                nx = distVec.x / dist;
+                ny = distVec.y / dist;
+                nz = distVec.z / dist;
             } else {
-                nx = (Math.random() - 0.5);
-                ny = (Math.random() - 0.5);
-                nz = (Math.random() - 0.5);
+                // If exactly on line (rare), push random
+                nx = Math.random() - 0.5;
+                ny = Math.random() - 0.5;
+                nz = Math.random() - 0.5;
             }
-
-            vx += nx * force;
-            vy += ny * force;
-            vz += nz * force;
+            
+            vx += nx * forceFactor;
+            vy += ny * forceFactor;
+            vz += nz * forceFactor;
         }
       }
 
-      vx *= friction;
-      vy *= friction;
-      vz *= friction;
+      vx *= friction; vy *= friction; vz *= friction;
       
-      // NaN KORUMASI (Donmayı önler)
-      if (isNaN(vx)) vx = 0;
-      if (isNaN(vy)) vy = 0;
-      if (isNaN(vz)) vz = 0;
-
-      current[ix] += vx;
-      current[iy] += vy;
-      current[iz] += vz;
-
-      velocities[ix] = vx;
-      velocities[iy] = vy;
-      velocities[iz] = vz;
+      current[ix] += vx; current[iy] += vy; current[iz] += vz;
+      velocities[ix] = vx; velocities[iy] = vy; velocities[iz] = vz;
 
       positionsAttribute.setXYZ(i, current[ix], current[iy], current[iz]);
-
-      if (isAudioActive || activePreset !== 'none') {
-          let r=1, g=1, b=1;
-          let baseR = 1, baseG = 1, baseB = 1;
-          
-          if (activePreset === 'none') {
-              baseR = simulationData.originalColors[ix] || 1;
-              baseG = simulationData.originalColors[iy] || 1;
-              baseB = simulationData.originalColors[iz] || 1;
-          }
-
-          if (activePreset === 'none') {
-             const intensity = freqValue * 1.5; 
-             r = baseR + intensity * 0.6;
-             g = baseG + intensity * 0.6;
-             b = baseB + intensity * 0.6;
-          } 
-          else {
-              const beatFlash = freqValue * 0.8;
-              
-              if (activePreset === 'electric') {
-                const isFlash = Math.random() > 0.98;
-                if (isFlash) { r=1; g=1; b=1; } 
-                else { r=0.1 + beatFlash; g=0.5 + beatFlash; b=1.0; } 
-              }
-              else if (activePreset === 'fire') {
-                  const heightFactor = Math.min(1, Math.max(0, (py + 4) / 8));
-                  r = 1.0;
-                  g = heightFactor * 0.8 + beatFlash; 
-                  b = 0.1 + beatFlash;
-              }
-              else if (activePreset === 'water') {
-                  const depthFactor = Math.sin(time + px);
-                  r = 0.0 + beatFlash;
-                  g = 0.5 + depthFactor * 0.2 + beatFlash;
-                  b = 1.0;
-              }
-              else if (activePreset === 'mercury') {
-                  const shine = Math.abs(Math.sin(px * 2 + time));
-                  r = 0.6 + shine * 0.4 + beatFlash;
-                  g = 0.6 + shine * 0.4 + beatFlash;
-                  b = 0.7 + shine * 0.3 + beatFlash;
-              }
-              else if (activePreset === 'disco') {
-                  const hue = (time * 0.2 + px * 0.05 + py * 0.05) % 1.0;
-                  discoColor.setHSL(hue, 1.0, 0.5);
-                  r = discoColor.r + beatFlash;
-                  g = discoColor.g + beatFlash;
-                  b = discoColor.b + beatFlash;
-              }
-          }
-          colorsAttribute.setXYZ(i, Math.min(1,r), Math.min(1,g), Math.min(1,b));
-      }
+      
+       if (isAudioActive || activePreset !== 'none') {
+           let r=1, g=1, b=1;
+           if (activePreset === 'none' && isAudioActive) {
+               let freqValue = 0;
+               if (dataArrayRef.current) freqValue = dataArrayRef.current[i % bufferLength] / 255.0;
+               let baseR = simulationData.originalColors[ix] || 1;
+               let baseG = simulationData.originalColors[iy] || 1;
+               let baseB = simulationData.originalColors[iz] || 1;
+               const intensity = freqValue * 1.5; 
+               r = baseR + intensity * 0.6; g = baseG + intensity * 0.6; b = baseB + intensity * 0.6;
+           } else if (activePreset === 'fire') {
+               r = 1.0; g = Math.random() * 0.5; b = 0.0;
+           } else if (activePreset === 'water') {
+               r = 0.0; g = 0.5; b = 1.0;
+           } else if (activePreset === 'electric') {
+               const flicker = Math.random() > 0.9 ? 1.0 : 0.7;
+               r = 0.6 * flicker; g = 0.9 * flicker; b = 1.0 * flicker;
+           } else if (activePreset === 'disco') {
+               const freq = 0.3;
+               r = Math.sin(current[ix] * freq + time) * 0.5 + 0.5;
+               g = Math.sin(current[iy] * freq + time + 2) * 0.5 + 0.5;
+               b = Math.sin(current[iz] * freq + time + 4) * 0.5 + 0.5;
+           } else {
+               r = simulationData.originalColors[ix];
+               g = simulationData.originalColors[iy];
+               b = simulationData.originalColors[iz];
+           }
+           colorsAttribute.setXYZ(i, Math.min(1,r), Math.min(1,g), Math.min(1,b));
+       }
     }
 
     positionsAttribute.needsUpdate = true;
@@ -725,9 +696,9 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     }
   });
   
-  if (isDrawing || isProcessing) return null;
+  if (isDrawing) return null;
 
-  let computedSize = Math.max(0.01, 0.06 - (particleSpacing / 50) * 0.05);
+  let computedSize = 0.01 + (particleSize / 100) * 0.2;
   if (activePreset === 'mercury') computedSize *= 1.5;
 
   return (
