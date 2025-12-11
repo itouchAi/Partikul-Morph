@@ -101,6 +101,10 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
+  
+  // Yeni: Arka Plan Renk Seçici State'i
+  const [isBgPaletteOpen, setIsBgPaletteOpen] = useState(false);
+
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [savedColor, setSavedColor] = useState(currentColor);
@@ -117,13 +121,18 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const bgImageInputRef = useRef<HTMLInputElement>(null);
-  const bgColorInputRef = useRef<HTMLInputElement>(null);
+  
+  // (Eski hidden input referansını kaldırdık, custom UI kullanacağız)
   const [pendingImage, setPendingImage] = useState<string | null>(null);
+
+  // Helper to determine if we are in light mode for UI styling
+  const isLightMode = bgMode === 'light';
 
   useEffect(() => {
     if (isDrawing) {
         setIsSettingsOpen(true);
         setIsThemeMenuOpen(false);
+        setIsBgPaletteOpen(false);
     } else {
         setIsSettingsOpen(false);
     }
@@ -139,6 +148,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
     }
   };
 
+  // --- PARTICLE COLOR HANDLER ---
   const handleSpectrumMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
@@ -168,6 +178,19 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
     onInteractionEnd();
   };
 
+  // --- BACKGROUND COLOR HANDLER (NEW) ---
+  const handleBgSpectrumMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+
+    const hue = x * 360;
+    const lightness = (1 - y) * 100;
+
+    const newColor = `hsl(${hue}, 100%, ${lightness}%)`;
+    onBgModeChange('color', newColor);
+  };
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -190,9 +213,8 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           const reader = new FileReader();
           reader.onload = (event) => {
               if (event.target?.result) {
-                  // Doğrudan değiştirmek yerine modal aç
                   setPendingBgImage(event.target.result as string);
-                  setSelectedBgStyle('cover'); // Varsayılan
+                  setSelectedBgStyle('cover'); 
                   setShowBgSettingsModal(true);
                   setIsThemeMenuOpen(false);
                   onInteractionStart();
@@ -249,7 +271,8 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   // --- Theme Menu Toggle Logic ---
   const toggleThemeMenu = () => {
       setIsThemeMenuOpen(!isThemeMenuOpen);
-      setIsSettingsOpen(false); // Diğerini kapat
+      setIsSettingsOpen(false); 
+      setIsBgPaletteOpen(false);
   };
 
   return (
@@ -278,6 +301,17 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         .theme-menu-open .item-4 { transition-delay: 0.2s; }
         .theme-menu-open .item-5 { transition-delay: 0.25s; }
         .theme-menu-open .item-6 { transition-delay: 0.3s; }
+
+        /* Konfigürasyon Stagger Animasyonu */
+        .config-item { opacity: 0; transform: translateY(-10px); transition: all 0.3s ease-out; }
+        .config-open .config-item { opacity: 1; transform: translateY(0); }
+        .config-open .c-item-1 { transition-delay: 0.05s; }
+        .config-open .c-item-2 { transition-delay: 0.1s; }
+        .config-open .c-item-3 { transition-delay: 0.15s; }
+        .config-open .c-item-4 { transition-delay: 0.2s; }
+        .config-open .c-item-5 { transition-delay: 0.25s; }
+        .config-open .c-item-6 { transition-delay: 0.3s; }
+        .config-open .c-item-7 { transition-delay: 0.35s; }
       `}</style>
 
       {/* SOL TARAFA PRESET MENÜSÜ */}
@@ -292,10 +326,10 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
       {/* Sol Alt Köşe: Talimatlar */}
       {!isDrawing && (
-        <div className="absolute bottom-6 left-6 z-10 pointer-events-none select-none text-white/50 text-xs font-mono space-y-2">
-            <div className="flex items-center gap-2"><div className="w-4 h-4 border border-white/30 rounded grid place-items-center text-[10px]">L</div><span>Sol Tık: Dağıt</span></div>
-            <div className="flex items-center gap-2"><div className="w-4 h-4 border border-white/30 rounded grid place-items-center text-[10px]">R</div><span>Sağ Tık: Döndür</span></div>
-            <div className="flex items-center gap-2"><div className="w-4 h-4 border border-white/30 rounded grid place-items-center text-[10px]">M</div><span>Tekerlek: Yakınlaş</span></div>
+        <div className={`absolute bottom-6 left-6 z-10 pointer-events-none select-none text-xs font-mono space-y-2 ${isLightMode ? 'text-black/60' : 'text-white/50'}`}>
+            <div className="flex items-center gap-2"><div className={`w-4 h-4 border rounded grid place-items-center text-[10px] ${isLightMode ? 'border-black/30' : 'border-white/30'}`}>L</div><span>Sol Tık: Dağıt</span></div>
+            <div className="flex items-center gap-2"><div className={`w-4 h-4 border rounded grid place-items-center text-[10px] ${isLightMode ? 'border-black/30' : 'border-white/30'}`}>R</div><span>Sağ Tık: Döndür</span></div>
+            <div className="flex items-center gap-2"><div className={`w-4 h-4 border rounded grid place-items-center text-[10px] ${isLightMode ? 'border-black/30' : 'border-white/30'}`}>M</div><span>Tekerlek: Yakınlaş</span></div>
         </div>
       )}
       {isDrawing && (
@@ -303,6 +337,37 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
             <p className="text-white text-sm font-mono animate-pulse">3D Tuval: Sol Tık Çiz - Sağ Tık Kamera</p>
             <p className="text-white/50 text-[10px] mt-1">Tuvali döndürmek için sağ menüdeki okları kullanın</p>
          </div>
+      )}
+      
+      {/* --- SAĞ ALT KÖŞE: ARKA PLAN RENK SEÇİCİ (YENİ VFX PANEL) --- */}
+      {isBgPaletteOpen && (
+          <div className="absolute bottom-24 right-6 z-50 animate-in fade-in slide-in-from-bottom-5 duration-300 origin-bottom-right" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd} onPointerDown={stopProp}>
+              <div className={`backdrop-blur-xl border p-4 rounded-2xl shadow-2xl relative w-56 ${isLightMode ? 'bg-black/80 border-black/20' : 'bg-[#111]/90 border-white/20'}`}>
+                  <div className="flex justify-between items-center mb-2">
+                      <span className="text-white/80 text-[10px] font-mono tracking-widest uppercase">Arka Plan Rengi</span>
+                      <button onClick={() => setIsBgPaletteOpen(false)} className="text-white/40 hover:text-white transition-colors"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"></path></svg></button>
+                  </div>
+                  
+                  {/* Spectrum Area */}
+                  <div 
+                      className="w-full h-32 rounded-lg cursor-crosshair relative overflow-hidden shadow-inner border border-white/10 group" 
+                      onMouseMove={handleBgSpectrumMove} 
+                      onClick={(e) => { handleBgSpectrumMove(e); }}
+                      style={{ background: 'white' }}
+                  >
+                     <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%)' }} />
+                     <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,1) 0%, rgba(255,255,255,0) 50%, rgba(0,0,0,0) 50%, rgba(0,0,0,1) 100%)' }} />
+                     
+                     {/* Hover Effect */}
+                     <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none border-2 border-white/20 rounded-lg"></div>
+                  </div>
+
+                  <div className="mt-2 flex gap-2 items-center">
+                       <div className="w-6 h-6 rounded-full border border-white/20 shadow-sm" style={{ backgroundColor: customBgColor }}></div>
+                       <span className="text-[10px] font-mono text-white/50">{customBgColor.toUpperCase()}</span>
+                  </div>
+              </div>
+          </div>
       )}
 
       {/* SAĞ ÜST KÖŞE: AYARLAR ve TEMA */}
@@ -313,7 +378,11 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
             {/* TEMA MENÜ BUTONU */}
             <button 
                 onClick={toggleThemeMenu}
-                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border border-white/20 text-white ${isThemeMenuOpen ? 'bg-white/20 scale-110 shadow-[0_0_15px_rgba(255,255,255,0.3)]' : 'bg-white/5 hover:bg-white/10'}`}
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border ${
+                    isLightMode 
+                    ? `border-black/20 text-black ${isThemeMenuOpen ? 'bg-black/20 scale-110 shadow-[0_0_15px_rgba(0,0,0,0.3)]' : 'bg-black/5 hover:bg-black/10'}`
+                    : `border-white/20 text-white ${isThemeMenuOpen ? 'bg-white/20 scale-110 shadow-[0_0_15px_rgba(255,255,255,0.3)]' : 'bg-white/5 hover:bg-white/10'}`
+                }`}
                 title="Tema ve Arka Plan"
             >
                 {/* Tema İkonu (Palet/Fırça Karışımı) */}
@@ -322,8 +391,12 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
             {/* AYARLAR BUTONU */}
             <button 
-                onClick={() => { setIsSettingsOpen(!isSettingsOpen); setIsThemeMenuOpen(false); }} 
-                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border border-white/20 text-white ${isSettingsOpen ? 'bg-white/20 rotate-90' : 'bg-white/5 hover:bg-white/10'}`} 
+                onClick={() => { setIsSettingsOpen(!isSettingsOpen); setIsThemeMenuOpen(false); setIsBgPaletteOpen(false); }} 
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border ${
+                    isLightMode 
+                    ? `border-black/20 text-black ${isSettingsOpen ? 'bg-black/20 rotate-90' : 'bg-black/5 hover:bg-black/10'}`
+                    : `border-white/20 text-white ${isSettingsOpen ? 'bg-white/20 rotate-90' : 'bg-white/5 hover:bg-white/10'}`
+                }`} 
                 title="Konfigürasyon"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
@@ -334,7 +407,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         <div className={`absolute top-12 right-12 flex flex-col gap-2 items-end ${isThemeMenuOpen ? 'theme-menu-open pointer-events-auto' : 'pointer-events-none'}`}>
              
              <input type="file" accept="image/*" ref={bgImageInputRef} onChange={handleBgImageSelect} className="hidden" />
-             <input type="color" ref={bgColorInputRef} onChange={(e) => { onBgModeChange('color', e.target.value); }} className="hidden" />
+             {/* Gizli Color Input kaldırıldı, artık custom UI kullanılıyor */}
 
              {/* 1. Karanlık Tema */}
              <button onClick={() => onBgModeChange('dark')} className={`theme-menu-item item-1 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/80 text-white hover:scale-110 ${bgMode === 'dark' ? 'ring-2 ring-white' : ''}`} title="Karanlık Mod">
@@ -351,8 +424,8 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
              </button>
 
-             {/* 4. Renk Paleti */}
-             <button onClick={() => bgColorInputRef.current?.click()} className={`theme-menu-item item-4 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gradient-to-tr from-pink-500 to-purple-500 text-white hover:scale-110 ${bgMode === 'color' ? 'ring-2 ring-pink-300' : ''}`} title="Arka Plan Rengi">
+             {/* 4. Renk Paleti (ÖZEL AÇILIR MENÜ) */}
+             <button onClick={() => { setIsBgPaletteOpen(!isBgPaletteOpen); onBgModeChange('color', customBgColor); }} className={`theme-menu-item item-4 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gradient-to-tr from-pink-500 to-purple-500 text-white hover:scale-110 ${bgMode === 'color' ? 'ring-2 ring-pink-300' : ''}`} title="Arka Plan Rengi">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5"></circle><circle cx="17.5" cy="10.5" r=".5"></circle><circle cx="8.5" cy="7.5" r=".5"></circle><circle cx="6.5" cy="12.5" r=".5"></circle><path d="M12 22.5A9.5 9.5 0 0 0 22 12c0-4.9-4.5-9-10-9S2 7.1 2 12c0 2.25 1 5.38 2.5 7.5"></path></svg>
              </button>
 
@@ -368,14 +441,14 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
         </div>
 
-        {/* AYARLAR MENÜSÜ (Mevcut) */}
+        {/* AYARLAR MENÜSÜ (Stagger Animasyonlu) */}
         {isSettingsOpen && (
-          <div className="absolute top-12 right-0 w-64 bg-[#111]/90 backdrop-blur-xl border border-white/10 rounded-xl p-5 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>
-            <h4 className="text-white/80 text-xs font-mono uppercase tracking-widest mb-4 border-b border-white/10 pb-2">Konfigürasyon</h4>
+          <div className={`absolute top-12 right-0 w-64 bg-[#111]/90 backdrop-blur-xl border border-white/10 rounded-xl p-5 shadow-2xl origin-top-right transition-all duration-300 ${isSettingsOpen ? 'config-open' : ''}`} onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>
+            <h4 className="text-white/80 text-xs font-mono uppercase tracking-widest mb-4 border-b border-white/10 pb-2 config-item c-item-1">Konfigürasyon</h4>
             
             {/* Sadece Çizim Modunda Görünen Ayarlar */}
             {isDrawing && (
-                <div className="mb-5 border-b border-white/10 pb-4 space-y-4">
+                <div className="mb-5 border-b border-white/10 pb-4 space-y-4 config-item c-item-2">
                     <div>
                         <div className="flex justify-between text-xs text-yellow-400 mb-1 font-bold"><span>Fırça Kalınlığı</span><span>{brushSize}px</span></div>
                         <input type="range" min="1" max="100" value={brushSize} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onBrushSizeChange(parseInt(e.target.value))} className="w-full h-1.5 bg-yellow-500/30 rounded-lg appearance-none cursor-pointer accent-yellow-400 hover:accent-yellow-200"/>
@@ -391,10 +464,10 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                 </div>
             )}
 
-            <div className="mb-5"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>İmleç Gücü</span><span>{repulsionStrength}%</span></div><input type="range" min="0" max="100" value={repulsionStrength} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onRepulsionChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
-            <div className="mb-5"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>İmleç Çapı</span><span>{repulsionRadius}%</span></div><input type="range" min="0" max="100" value={repulsionRadius} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onRadiusChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
+            <div className="mb-5 config-item c-item-3"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>İmleç Gücü</span><span>{repulsionStrength}%</span></div><input type="range" min="0" max="100" value={repulsionStrength} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onRepulsionChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
+            <div className="mb-5 config-item c-item-4"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>İmleç Çapı</span><span>{repulsionRadius}%</span></div><input type="range" min="0" max="100" value={repulsionRadius} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onRadiusChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
             
-            <div className="mb-5">
+            <div className="mb-5 config-item c-item-5">
               <div className="flex justify-between text-xs text-gray-400 mb-1"><span>Partikül Sayısı</span></div>
               <div className="flex items-center gap-2">
                 <button 
@@ -418,17 +491,17 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
               <div className="text-[10px] text-gray-600 mt-1 text-center">Max: 50,000</div>
             </div>
             
-            <div className="mb-5"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>Model Sıkılığı</span><span>{modelDensity}%</span></div><input type="range" min="0" max="100" value={modelDensity} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onModelDensityChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
+            <div className="mb-5 config-item c-item-6"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>Model Sıkılığı</span><span>{modelDensity}%</span></div><input type="range" min="0" max="100" value={modelDensity} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onModelDensityChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
 
             {/* Derinlik Slayderı (Sadece Resim/Görsel Modunda) */}
             {hasImage && !isDrawing && (
-                <div className="mb-5 border-t border-white/10 pt-4 animate-in fade-in">
+                <div className="mb-5 border-t border-white/10 pt-4 config-item c-item-7">
                     <div className="flex justify-between text-xs text-blue-300 mb-1"><span>Derinlik Etkisi</span><span>{Math.round(depthIntensity * 10)}%</span></div>
                     <input type="range" min="0" max="10" step="0.1" value={depthIntensity} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onDepthChange(parseFloat(e.target.value))} className="w-full h-1.5 bg-blue-500/30 rounded-lg appearance-none cursor-pointer accent-blue-400 hover:accent-blue-200"/>
                 </div>
             )}
 
-            <div className="mb-2"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>Partikül Boyutu</span><span>{particleSize}</span></div><input type="range" min="1" max="100" value={particleSize} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onParticleSizeChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
+            <div className="mb-2 config-item c-item-7"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>Partikül Boyutu</span><span>{particleSize}</span></div><input type="range" min="1" max="100" value={particleSize} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onParticleSizeChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
           </div>
         )}
       </div>
@@ -517,8 +590,6 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         </div>
       )}
       
-      {/* ESKİ DERİNLİK SLIDERI BURADAYDI, KALDIRILDI */}
-
       {/* Orta Alt: Kontroller */}
       <div className="absolute bottom-10 left-0 w-full flex justify-center items-center pointer-events-none z-50 px-4">
         <div className="pointer-events-auto w-full max-w-lg relative group flex gap-2 items-center" onPointerDown={stopProp}>
@@ -542,7 +613,13 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           {!isDrawing && (
           <button
             onClick={() => { setShowAudioModal(true); onInteractionStart(); }}
-            className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border border-white/20 hover:border-white/50 text-white ${audioMode !== 'none' ? 'bg-green-500/20 text-green-300 border-green-500/50' : 'bg-white/10 hover:bg-white/20'}`}
+            className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border ${
+              audioMode !== 'none' 
+              ? 'bg-green-500/20 text-green-300 border-green-500/50' 
+              : isLightMode 
+                  ? 'bg-black/5 hover:bg-black/10 border-black/20 hover:border-black/50 text-black/80' 
+                  : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/50 text-white'
+            }`}
             title="Müzik/Ses Ekle"
             onMouseEnter={onInteractionStart}
             onMouseLeave={onInteractionEnd}
@@ -553,7 +630,17 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
           {/* Resim Ekle Butonu */}
           {!isDrawing && (
-          <button onClick={() => fileInputRef.current?.click()} className="w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/20 transition-all duration-300 border border-white/20 hover:border-white/50 text-white" title="Resim Yükle" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>
+          <button 
+            onClick={() => fileInputRef.current?.click()} 
+            className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border ${
+               isLightMode 
+               ? 'bg-black/5 hover:bg-black/10 border-black/20 hover:border-black/50 text-black/80' 
+               : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/50 text-white'
+            }`}
+            title="Resim Yükle" 
+            onMouseEnter={onInteractionStart} 
+            onMouseLeave={onInteractionEnd}
+          >
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
           </button>
           )}
@@ -561,7 +648,13 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           {/* Kalem Butonu (Çizim Modu) */}
           <button 
              onClick={isDrawing ? cancelDrawing : onDrawingStart}
-             className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border text-white ${isDrawing ? 'bg-red-500/20 text-red-200 border-red-500/50 hover:bg-red-500/40' : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/50'}`}
+             className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border ${
+                 isDrawing 
+                 ? 'bg-red-500/20 text-red-200 border-red-500/50 hover:bg-red-500/40' 
+                 : isLightMode 
+                    ? 'bg-black/5 hover:bg-black/10 border-black/20 hover:border-black/50 text-black/80' 
+                    : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/50 text-white'
+             }`}
              title={isDrawing ? "Çizimi İptal Et" : "Çizim Yap"}
              onMouseEnter={onInteractionStart} 
              onMouseLeave={onInteractionEnd}
@@ -575,7 +668,20 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
           {/* Text Input Yerine Bilgi / Placeholder */}
           {!isDrawing ? (
-             <input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleKeyDown} onFocus={() => onInteractionStart()} onBlur={() => onInteractionEnd()} placeholder="Metin yazın (Türkçe destekli)..." className="flex-1 bg-white/10 backdrop-blur-md border border-white/20 text-white placeholder-gray-400 rounded-full px-6 py-4 outline-none focus:bg-white/20 focus:border-white/50 transition-all duration-300 shadow-lg text-center font-light tracking-wide text-lg" />
+             <input 
+               type="text" 
+               value={inputValue} 
+               onChange={(e) => setInputValue(e.target.value)} 
+               onKeyDown={handleKeyDown} 
+               onFocus={() => onInteractionStart()} 
+               onBlur={() => onInteractionEnd()} 
+               placeholder="Metin yazın (Türkçe destekli)..." 
+               className={`flex-1 backdrop-blur-md border rounded-full px-6 py-4 outline-none transition-all duration-300 shadow-lg text-center font-light tracking-wide text-lg ${
+                 isLightMode 
+                 ? 'bg-black/5 border-black/10 text-black placeholder-gray-500 focus:bg-black/10 focus:border-black/30' 
+                 : 'bg-white/10 border-white/20 text-white placeholder-gray-400 focus:bg-white/20 focus:border-white/50'
+               }`} 
+             />
           ) : (
              <div className="flex-1 bg-white/5 border border-white/10 rounded-full px-6 py-4 text-center text-white/50 font-light tracking-wide text-lg select-none">
                 3D Tuval Aktif
@@ -598,14 +704,30 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
             )}
 
             {/* Renk Paleti */}
-            <button onClick={() => setIsPaletteOpen(!isPaletteOpen)} className="w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/20 transition-all duration-300 border-2 border-white/20 hover:border-white hover:scale-105 shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:shadow-[0_0_20px_rgba(255,255,255,0.3)] z-20" title="Renk Paletini Aç" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>
-                <div className="w-6 h-6 rounded-full border border-white/50 shadow-sm" style={{ backgroundColor: currentColor }} />
+            <button 
+                onClick={() => setIsPaletteOpen(!isPaletteOpen)} 
+                className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border-2 z-20 ${
+                    isLightMode 
+                    ? 'bg-black/5 hover:bg-black/20 border-black/20 hover:border-black shadow-[0_0_15px_rgba(0,0,0,0.1)] hover:shadow-[0_0_20px_rgba(0,0,0,0.3)]' 
+                    : 'bg-white/5 hover:bg-white/20 border-white/20 hover:border-white shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:shadow-[0_0_20px_rgba(255,255,255,0.3)]'
+                }`}
+                title="Renk Paletini Aç" 
+                onMouseEnter={onInteractionStart} 
+                onMouseLeave={onInteractionEnd}
+            >
+                <div className={`w-6 h-6 rounded-full shadow-sm ${isLightMode ? 'border border-black/20' : 'border border-white/50'}`} style={{ backgroundColor: currentColor }} />
             </button>
             
              {/* GLOBAL RESET / CANVAS CLEAR BUTTON */}
              <button
                 onClick={isDrawing ? onClearCanvas : onResetAll}
-                className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border border-white/20 text-white/70 hover:text-white ${isDrawing ? 'bg-orange-500/10 hover:bg-orange-500/30 hover:border-orange-400' : 'bg-red-500/10 hover:bg-red-500/30 hover:border-red-400'}`}
+                className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border ${
+                    isDrawing 
+                    ? 'bg-orange-500/10 hover:bg-orange-500/30 hover:border-orange-400 border-white/20 text-white/70 hover:text-white' 
+                    : isLightMode 
+                        ? 'bg-red-500/10 hover:bg-red-500/30 hover:border-red-400 border-black/20 text-black/70 hover:text-black' 
+                        : 'bg-red-500/10 hover:bg-red-500/30 hover:border-red-400 border-white/20 text-white/70 hover:text-white'
+                }`}
                 title={isDrawing ? "Tuvali Temizle" : "Her Şeyi Sıfırla"}
                 onMouseEnter={onInteractionStart}
                 onMouseLeave={onInteractionEnd}
@@ -621,7 +743,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           </div>
         </div>
         {!isDrawing && (
-            <div className="absolute -bottom-6 text-center text-[10px] text-gray-500 font-mono opacity-50">Küre moduna dönmek için boş Enter</div>
+            <div className={`absolute -bottom-6 text-center text-[10px] font-mono opacity-50 ${isLightMode ? 'text-black' : 'text-gray-500'}`}>Küre moduna dönmek için boş Enter</div>
         )}
       </div>
     </>
