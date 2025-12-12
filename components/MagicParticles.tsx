@@ -828,7 +828,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                r = 0.6 * flicker; g = 0.9 * flicker; b = 1.0 * flicker;
            } else if (activePreset === 'mercury') {
                // Metalik/Gümüşi renk zorlaması (Siyah ekranda görünmesi için)
-               r = 0.8; g = 0.8; b = 0.9;
+               r = 0.7; g = 0.7; b = 0.8; 
            } else if (activePreset === 'disco') {
                const freq = 0.3;
                r = Math.sin(current[ix] * freq + time) * 0.5 + 0.5;
@@ -878,7 +878,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       <pointsMaterial
         color="#ffffff" 
         vertexColors={true}
-        size={computedSize} 
+        size={activePreset === 'mercury' ? computedSize * 1.5 : computedSize} 
         sizeAttenuation={true}
         transparent={true}
         opacity={activePreset === 'mercury' ? 1.0 : 0.9} 

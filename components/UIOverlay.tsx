@@ -1,6 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { PresetType, AudioMode, BackgroundMode, BgImageStyle, ShapeType } from '../types';
 
+const FONTS = [
+  { name: 'Mono', value: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' },
+  { name: 'Sans Serif', value: 'ui-sans-serif, system-ui, sans-serif' },
+  { name: 'Serif', value: 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif' },
+  { name: 'Cursive', value: '"Comic Sans MS", "Chalkboard SE", "Comic Neue", sans-serif' },
+  { name: 'Fantasy', value: 'Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif' },
+];
+
 interface UIOverlayProps {
   onSubmit: (text: string) => void;
   onImageUpload: (imgSrc: string, useOriginalColors: boolean) => void;
@@ -130,6 +138,13 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   const [selectedBgStyle, setSelectedBgStyle] = useState<BgImageStyle>('cover');
   const [useOriginalImageColors, setUseOriginalImageColors] = useState(true);
 
+  // Müzik Çalar Ayarları
+  const [showMusicSettings, setShowMusicSettings] = useState(false);
+  const [musicFont, setMusicFont] = useState(FONTS[0].value);
+  const [musicBold, setMusicBold] = useState(false);
+  const [musicItalic, setMusicItalic] = useState(false);
+  const [musicShowInCleanMode, setMusicShowInCleanMode] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const bgImageInputRef = useRef<HTMLInputElement>(null);
@@ -137,7 +152,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   const [pendingImage, setPendingImage] = useState<string | null>(null);
 
   const isLightMode = bgMode === 'light';
-  const isAnyMenuOpen = isSettingsOpen || isThemeMenuOpen || isShapeMenuOpen || isBgPaletteOpen || isPaletteOpen;
+  const isAnyMenuOpen = isSettingsOpen || isThemeMenuOpen || isShapeMenuOpen || isBgPaletteOpen || isPaletteOpen || showMusicSettings;
 
   const closeAllMenus = () => {
     setIsSettingsOpen(false);
@@ -145,6 +160,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
     setIsShapeMenuOpen(false);
     setIsBgPaletteOpen(false);
     setIsPaletteOpen(false);
+    setShowMusicSettings(false);
     onInteractionEnd();
   };
 
@@ -298,6 +314,11 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   const hideBottomClass = isUIHidden ? "translate-y-[200%] opacity-0 pointer-events-none" : "translate-y-0 opacity-100";
   const hideLeftClass = isUIHidden ? "-translate-x-[200%] opacity-0 pointer-events-none" : "translate-x-0 opacity-100";
 
+  // Müzik çalar görünürlük mantığı
+  const showMusicPlayer = audioTitle && audioMode !== 'none';
+  const hideMusicPlayer = isUIHidden && !musicShowInCleanMode;
+  const musicPlayerClass = hideMusicPlayer ? "-translate-y-[200%] opacity-0 pointer-events-none" : "translate-y-0 opacity-100";
+
   return (
     <>
       <style>{`
@@ -341,14 +362,15 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         .delay-7 { animation-delay: 0.35s; }
         .oval-picker-container { animation: menu-pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
         
-        /* Marquee Animation */
-        @keyframes marquee-gapless {
+        /* Gapless Marquee Loop */
+        @keyframes marquee-loop {
           0% { transform: translateX(0%); }
-          100% { transform: translateX(-50%); } /* %50 çünkü içeriği ikiye katlıyoruz */
+          100% { transform: translateX(-50%); }
         }
-        .animate-marquee-gapless {
+        .animate-marquee-loop {
           display: flex;
-          animation: marquee-gapless 10s linear infinite;
+          width: max-content;
+          animation: marquee-loop 12s linear infinite;
         }
       `}</style>
       
@@ -358,21 +380,59 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
       <input type="file" accept="audio/*" ref={audioInputRef} onChange={handleAudioSelect} className="hidden" />
       <input type="file" accept="image/*" ref={bgImageInputRef} onChange={handleBgImageSelect} className="hidden" />
 
-      {/* --- AUDIO TITLE INDICATOR --- */}
-      {audioTitle && audioMode !== 'none' && !isUIHidden && (
-          <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-40 rounded-full px-5 py-2 backdrop-blur-md shadow-lg border border-white/10 flex items-center justify-center overflow-hidden max-w-[250px] ${isLightMode ? 'bg-black/10 text-black' : 'bg-white/10 text-white'}`}>
-             <div className="w-full overflow-hidden whitespace-nowrap">
-                {audioTitle.length > 30 ? (
-                    <div className="animate-marquee-gapless">
-                        <span className="px-4 text-[15px] font-mono">{audioTitle}</span>
-                        <span className="px-4 text-[15px] font-mono">{audioTitle}</span>
-                        {/* Yedek kopyalar boşluksuz döngü için */}
-                        <span className="px-4 text-[15px] font-mono">{audioTitle}</span>
-                        <span className="px-4 text-[15px] font-mono">{audioTitle}</span>
+      {/* --- AUDIO TITLE INDICATOR & SETTINGS --- */}
+      {showMusicPlayer && (
+          <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-40 transition-all duration-700 ease-in-out ${musicPlayerClass}`}>
+             <div className={`relative group rounded-full px-5 py-2 backdrop-blur-md shadow-lg border border-white/10 flex items-center justify-center overflow-visible max-w-[280px] transition-all duration-300 ${isLightMode ? 'bg-black/10 text-black border-black/10' : 'bg-white/10 text-white'}`}>
+                 
+                 {/* Marquee Content */}
+                 <div className="w-full overflow-hidden">
+                    {audioTitle.length > 30 ? (
+                        <div className="animate-marquee-loop">
+                            <span className="whitespace-nowrap pr-[300px] text-[15px]" style={{ fontFamily: musicFont, fontWeight: musicBold ? 'bold' : 'normal', fontStyle: musicItalic ? 'italic' : 'normal' }}>{audioTitle}</span>
+                            <span className="whitespace-nowrap pr-[300px] text-[15px]" style={{ fontFamily: musicFont, fontWeight: musicBold ? 'bold' : 'normal', fontStyle: musicItalic ? 'italic' : 'normal' }}>{audioTitle}</span>
+                        </div>
+                    ) : (
+                        <span className="text-[15px] text-center block w-full whitespace-nowrap" style={{ fontFamily: musicFont, fontWeight: musicBold ? 'bold' : 'normal', fontStyle: musicItalic ? 'italic' : 'normal' }}>{audioTitle}</span>
+                    )}
+                 </div>
+
+                 {/* Settings Button (Hover) */}
+                 <button 
+                    onClick={(e) => { e.stopPropagation(); setShowMusicSettings(!showMusicSettings); }}
+                    className={`absolute -right-3 -top-3 w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 shadow-md ${isLightMode ? 'bg-white text-black border border-black/10' : 'bg-black text-white border border-white/20'}`}
+                 >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                 </button>
+
+                 {/* Music Settings Menu */}
+                 {showMusicSettings && (
+                    <div className="absolute top-10 left-1/2 -translate-x-1/2 w-64 bg-[#111]/95 backdrop-blur-xl border border-white/20 rounded-2xl p-4 shadow-[0_20px_50px_rgba(0,0,0,0.6)] animate-config-pop cursor-default" onPointerDown={stopProp}>
+                        <h4 className="text-xs font-mono uppercase text-gray-500 mb-3 tracking-widest border-b border-white/10 pb-2 vfx-item delay-1 text-center">Müzik Ayarları</h4>
+                        
+                        {/* Font Selection */}
+                        <div className="mb-3 vfx-item delay-2">
+                            <label className="text-[10px] text-gray-400 block mb-1 font-medium">Yazı Tipi</label>
+                            <select value={musicFont} onChange={(e) => setMusicFont(e.target.value)} className="w-full bg-black/40 border border-white/20 rounded-lg text-xs text-white p-2 outline-none cursor-pointer">
+                                {FONTS.map(f => (<option key={f.name} value={f.value} className="bg-gray-900 text-white">{f.name}</option>))}
+                            </select>
+                        </div>
+
+                        {/* Style Toggles */}
+                        <div className="flex gap-2 mb-3 vfx-item delay-3">
+                            <button onClick={() => setMusicBold(!musicBold)} className={`flex-1 py-1.5 rounded border text-xs font-bold transition-all ${musicBold ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>B</button>
+                            <button onClick={() => setMusicItalic(!musicItalic)} className={`flex-1 py-1.5 rounded border text-xs italic transition-all ${musicItalic ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>I</button>
+                        </div>
+
+                        {/* Show In Clean Mode */}
+                        <div className="flex items-center justify-between border-t border-white/10 pt-3 vfx-item delay-4">
+                            <span className="text-[10px] text-gray-400 font-medium">Temiz Modda Göster</span>
+                            <button onClick={() => setMusicShowInCleanMode(!musicShowInCleanMode)} className={`w-8 h-4 rounded-full relative transition-colors ${musicShowInCleanMode ? 'bg-blue-600' : 'bg-white/10'}`}>
+                                <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${musicShowInCleanMode ? 'translate-x-4' : 'translate-x-0'}`} />
+                            </button>
+                        </div>
                     </div>
-                ) : (
-                    <span className="text-[15px] font-mono text-center block w-full">{audioTitle}</span>
-                )}
+                 )}
              </div>
           </div>
       )}
@@ -432,7 +492,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         </div>
       )}
       
-      {/* Ses Yükleme Onay Modalı (Basit) */}
+      {/* Ses Yükleme Onay Modalı (Düzenlenmiş) */}
       {showAudioModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
            <div className="bg-[#111] border border-white/20 p-6 rounded-2xl max-w-sm w-full shadow-2xl animate-in zoom-in duration-300">
@@ -443,12 +503,14 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                <h3 className="text-white font-mono text-lg text-center">Ses Kaynağı Seçin</h3>
                <p className="text-gray-400 text-xs text-center">Partiküller seçtiğiniz müziğin ritmine göre dans edecek.</p>
              </div>
+             {/* Butonların yerleri değiştirildi: Mikrofon ve Dosya Seç üstte */}
              <div className="flex gap-3">
-                <button onClick={() => { setShowAudioModal(false); onInteractionEnd(); }} className="flex-1 py-3 rounded-lg bg-white/10 text-white/70 hover:bg-white/20 hover:text-white transition-colors font-medium">İptal</button>
-                <button onClick={() => audioInputRef.current?.click()} className="flex-1 py-3 rounded-lg bg-green-600 text-white hover:bg-green-500 transition-colors font-bold shadow-lg shadow-green-900/50">Dosya Seç</button>
+                <button onClick={() => { onAudioChange('mic', null, 'Mikrofon Girişi'); setShowAudioModal(false); onInteractionEnd(); }} className="flex-1 py-3 rounded-lg bg-white/10 text-white/90 hover:bg-white/20 hover:text-white transition-colors font-bold text-sm border border-white/10">Mikrofon</button>
+                <button onClick={() => audioInputRef.current?.click()} className="flex-1 py-3 rounded-lg bg-green-600 text-white hover:bg-green-500 transition-colors font-bold text-sm shadow-lg shadow-green-900/50">Dosya Seç</button>
              </div>
+             {/* İptal butonu alta alındı */}
              <div className="mt-3">
-                <button onClick={() => { onAudioChange('mic', null, 'Mikrofon Girişi'); setShowAudioModal(false); onInteractionEnd(); }} className="w-full py-3 rounded-lg border border-white/10 text-white/50 hover:bg-white/5 hover:text-white transition-colors text-sm">veya Mikrofon Kullan</button>
+                <button onClick={() => { setShowAudioModal(false); onInteractionEnd(); }} className="w-full py-3 rounded-lg border border-white/10 text-white/50 hover:bg-white/5 hover:text-white transition-colors text-sm">İptal</button>
              </div>
            </div>
         </div>
@@ -518,12 +580,12 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         </div>
 
         <div className={`absolute top-12 right-12 flex flex-col gap-2 items-end ${isThemeMenuOpen ? 'theme-menu-open pointer-events-auto' : 'pointer-events-none'}`}>
-             <button onClick={() => onBgModeChange('dark')} className={`theme-menu-item item-1 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/80 text-white hover:scale-110 ${bgMode === 'dark' ? 'ring-2 ring-white' : ''}`} title="Karanlık Mod"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg></button>
-             <button onClick={() => onBgModeChange('light')} className={`theme-menu-item item-2 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-white text-black hover:scale-110 ${bgMode === 'light' ? 'ring-2 ring-yellow-400' : ''}`} title="Aydınlık Mod"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg></button>
-             <button onClick={() => bgImageInputRef.current?.click()} className={`theme-menu-item item-3 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gray-800 text-white hover:scale-110 ${bgMode === 'image' ? 'ring-2 ring-blue-400' : ''}`} title="Arka Plan Resmi"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></button>
-             <button onClick={() => { setIsBgPaletteOpen(!isBgPaletteOpen); }} className={`theme-menu-item item-4 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gradient-to-tr from-pink-500 to-purple-500 text-white hover:scale-110 ${bgMode === 'color' ? 'ring-2 ring-pink-300' : ''}`} title="Arka Plan Rengi"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5"></circle><circle cx="17.5" cy="10.5" r=".5"></circle><circle cx="8.5" cy="7.5" r=".5"></circle><circle cx="6.5" cy="12.5" r=".5"></circle><path d="M12 22.5A9.5 9.5 0 0 0 22 12c0-4.9-4.5-9-10-9S2 7.1 2 12c0 2.25 1 5.38 2.5 7.5"></path></svg></button>
-             <button onClick={() => onBgModeChange('gradient')} className={`theme-menu-item item-5 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-[linear-gradient(45deg,red,blue)] text-white hover:scale-110 ${bgMode === 'gradient' ? 'ring-2 ring-purple-400' : ''}`} title="Disko Modu"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></button>
-             <button onClick={() => onBgModeChange('auto')} className={`theme-menu-item item-6 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gray-900 text-white hover:scale-110 ${bgMode === 'auto' ? 'ring-2 ring-green-400' : ''}`} title="Otomatik Döngü"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg></button>
+             <button onClick={() => { onBgModeChange('dark'); setIsThemeMenuOpen(false); }} className={`theme-menu-item item-1 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/80 text-white hover:scale-110 ${bgMode === 'dark' ? 'ring-2 ring-white' : ''}`} title="Karanlık Mod"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg></button>
+             <button onClick={() => { onBgModeChange('light'); setIsThemeMenuOpen(false); }} className={`theme-menu-item item-2 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-white text-black hover:scale-110 ${bgMode === 'light' ? 'ring-2 ring-yellow-400' : ''}`} title="Aydınlık Mod"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg></button>
+             <button onClick={() => { bgImageInputRef.current?.click(); setIsThemeMenuOpen(false); }} className={`theme-menu-item item-3 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gray-800 text-white hover:scale-110 ${bgMode === 'image' ? 'ring-2 ring-blue-400' : ''}`} title="Arka Plan Resmi"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></button>
+             <button onClick={() => { setIsBgPaletteOpen(!isBgPaletteOpen); setIsThemeMenuOpen(false); }} className={`theme-menu-item item-4 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gradient-to-tr from-pink-500 to-purple-500 text-white hover:scale-110 ${bgMode === 'color' ? 'ring-2 ring-pink-300' : ''}`} title="Arka Plan Rengi"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5"></circle><circle cx="17.5" cy="10.5" r=".5"></circle><circle cx="8.5" cy="7.5" r=".5"></circle><circle cx="6.5" cy="12.5" r=".5"></circle><path d="M12 22.5A9.5 9.5 0 0 0 22 12c0-4.9-4.5-9-10-9S2 7.1 2 12c0 2.25 1 5.38 2.5 7.5"></path></svg></button>
+             <button onClick={() => { onBgModeChange('gradient'); setIsThemeMenuOpen(false); }} className={`theme-menu-item item-5 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-[linear-gradient(45deg,red,blue)] text-white hover:scale-110 ${bgMode === 'gradient' ? 'ring-2 ring-purple-400' : ''}`} title="Disko Modu"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></button>
+             <button onClick={() => { onBgModeChange('auto'); setIsThemeMenuOpen(false); }} className={`theme-menu-item item-6 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gray-900 text-white hover:scale-110 ${bgMode === 'auto' ? 'ring-2 ring-green-400' : ''}`} title="Otomatik Döngü"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg></button>
         </div>
 
         {isSettingsOpen && (
