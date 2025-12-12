@@ -16,7 +16,8 @@ const App: React.FC = () => {
   const [bgImages, setBgImages] = useState<string[]>([]); // Yüklü resimler listesi
   const [bgImage, setBgImage] = useState<string | null>(null); // Aktif resim
   const [bgImageStyle, setBgImageStyle] = useState<BgImageStyle>('cover');
-  const [bgImagePosition, setBgImagePosition] = useState<string>('center center'); // Crop/Position
+  const [bgImagePosition, setBgImagePosition] = useState<string>('center center'); // Crop Position
+  const [bgImageZoom, setBgImageZoom] = useState<number>(1); // Crop Zoom
 
   // Widget State
   const [isWidgetMinimized, setIsWidgetMinimized] = useState<boolean>(false);
@@ -55,6 +56,7 @@ const App: React.FC = () => {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioTitle, setAudioTitle] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
+  const [volume, setVolume] = useState<number>(0.5); // 0.0 to 1.0
 
   // Ayarlar
   const [repulsionStrength, setRepulsionStrength] = useState<number>(50);
@@ -107,14 +109,13 @@ const App: React.FC = () => {
           setBgImage(newImages[0]);
           setBgMode('image');
           setBgImagePosition('center center');
+          setBgImageZoom(1);
       }
   };
 
   const handleBgImageSelectFromDeck = (img: string) => {
       setBgImage(img);
       setBgMode('image');
-      // Her resim değişiminde pozisyonu sıfırla veya hafızada tut (şimdilik sıfırla)
-      // setBgImagePosition('center center'); 
   };
 
   const handleRemoveBgImage = (imgToRemove: string) => {
@@ -135,6 +136,16 @@ const App: React.FC = () => {
 
   const handleBgImageStyleChange = (style: BgImageStyle) => {
       setBgImageStyle(style);
+      // Reset zoom/pos when changing style type to avoid confusion
+      if (style !== 'cover') {
+         setBgImagePosition('center center');
+         setBgImageZoom(1);
+      }
+  };
+  
+  const handleBgPositionChange = (pos: string, zoom: number) => {
+      setBgImagePosition(pos);
+      setBgImageZoom(zoom);
   };
 
   const handleTextSubmit = (text: string) => {
@@ -250,6 +261,8 @@ const App: React.FC = () => {
     setCameraResetTrigger(prev => prev + 1);
     setBgMode('dark');
     setIsSceneVisible(true);
+    setBgImageZoom(1);
+    setBgImagePosition('center center');
   };
 
   const rotateCanvasX = () => setCanvasRotation(prev => [prev[0] + Math.PI / 2, prev[1], prev[2]]);
@@ -275,7 +288,9 @@ const App: React.FC = () => {
                 className="w-full h-full opacity-100 transition-all duration-700"
                 style={{ 
                     objectFit: bgImageStyle,
-                    objectPosition: bgImagePosition 
+                    objectPosition: bgImagePosition,
+                    transform: `scale(${bgImageZoom})`,
+                    transformOrigin: bgImagePosition
                 }}
               />
           )}
@@ -323,6 +338,7 @@ const App: React.FC = () => {
             audioMode={audioMode}
             audioUrl={audioUrl}
             isPlaying={isPlaying} 
+            volume={volume}
             isDrawing={isDrawing}
             brushSize={brushSize}
             getDrawingDataRef={getDrawingDataRef}
@@ -372,6 +388,8 @@ const App: React.FC = () => {
         audioTitle={audioTitle}
         isPlaying={isPlaying}
         onTogglePlay={() => setIsPlaying(!isPlaying)}
+        volume={volume}
+        onVolumeChange={setVolume}
         onResetAll={handleResetAll}
         onClearCanvas={handleClearCanvas}
         bgMode={bgMode}
@@ -391,7 +409,7 @@ const App: React.FC = () => {
         onBgImageStyleChange={handleBgImageStyleChange}
         bgImageStyle={bgImageStyle}
         onRemoveBgImage={handleRemoveBgImage}
-        onBgPositionChange={setBgImagePosition}
+        onBgPositionChange={handleBgPositionChange}
       />
     </div>
   );

@@ -23,6 +23,8 @@ interface ExperienceProps {
   audioMode: AudioMode;
   audioUrl: string | null;
   isPlaying: boolean;
+  volume?: number; // Added volume prop
+
   isDrawing: boolean;
   brushSize: number;
   getDrawingDataRef: React.MutableRefObject<{ getXY: () => string, getYZ: () => string } | null>;
@@ -232,6 +234,7 @@ export const Experience: React.FC<ExperienceProps> = ({
   audioMode,
   audioUrl,
   isPlaying,
+  volume = 0.5,
   isDrawing,
   brushSize,
   getDrawingDataRef,
@@ -311,6 +314,7 @@ export const Experience: React.FC<ExperienceProps> = ({
                 audioMode={audioMode}
                 audioUrl={audioUrl}
                 isPlaying={isPlaying}
+                volume={volume}
                 isDrawing={false}
                 canvasRotation={canvasRotation}
                 currentShape={currentShape}

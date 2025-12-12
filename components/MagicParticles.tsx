@@ -25,6 +25,7 @@ interface MagicParticlesProps {
   audioMode: AudioMode;
   audioUrl: string | null;
   isPlaying: boolean;
+  volume?: number; // Volume prop
   isDrawing: boolean;
   canvasRotation?: [number, number, number];
   currentShape?: ShapeType;
@@ -49,6 +50,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   audioMode,
   audioUrl,
   isPlaying,
+  volume = 0.5,
   isDrawing,
   canvasRotation = [0, 0, 0],
   currentShape = 'sphere',
@@ -128,6 +130,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                 const audioEl = new Audio(audioUrl);
                 audioEl.crossOrigin = "anonymous";
                 audioEl.loop = true;
+                audioEl.volume = volume; // Set initial volume
                 if (isPlaying) {
                    audioEl.play().catch(e => console.warn("Otomatik oynatma engellendi.", e));
                 }
@@ -159,9 +162,10 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     };
   }, [audioMode, audioUrl]);
 
-  // isPlaying değiştiğinde sesi yönet
+  // isPlaying ve volume değiştiğinde sesi yönet
   useEffect(() => {
     if (audioMode === 'file' && audioElementRef.current) {
+        audioElementRef.current.volume = volume; // Update volume
         if (isPlaying) {
             audioElementRef.current.play().catch(e => console.warn("Oynatma hatası:", e));
         } else {
@@ -169,13 +173,15 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
         }
     }
     else if (audioMode === 'mic' && audioContextRef.current) {
+        // Mic volume usually isn't output volume, but we can't easily control system input level from web.
+        // We just resume/suspend context.
         if (isPlaying) {
              audioContextRef.current.resume();
         } else {
              audioContextRef.current.suspend();
         }
     }
-  }, [isPlaying, audioMode]);
+  }, [isPlaying, audioMode, volume]);
 
   const getTriangleUV = (index: number, totalPoints: number) => {
       const rows = Math.ceil(Math.sqrt(2 * totalPoints));
