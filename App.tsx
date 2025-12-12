@@ -19,6 +19,9 @@ const App: React.FC = () => {
 
   // UI Gizleme (Clean Mode) State'i
   const [isUIHidden, setIsUIHidden] = useState<boolean>(false);
+  
+  // Sahne Nesnesi Gizleme (VFX Toggle) State'i
+  const [isSceneVisible, setIsSceneVisible] = useState<boolean>(true);
 
   // Şekil State'i
   const [currentShape, setCurrentShape] = useState<ShapeType>('sphere');
@@ -107,6 +110,7 @@ const App: React.FC = () => {
     setIsDrawing(false);
     setCanvasRotation([0, 0, 0]);
     setCameraResetTrigger(prev => prev + 1);
+    setIsSceneVisible(true); // Yeni içerik gelince görünür yap
   };
 
   const handleDualImageUpload = (imgXY: string | null, imgYZ: string | null, useOriginalColors: boolean, keepRotation = false) => {
@@ -115,6 +119,7 @@ const App: React.FC = () => {
     setUseImageColors(useOriginalColors);
     setCurrentText('');
     setActivePreset('none');
+    setIsSceneVisible(true); // Yeni içerik gelince görünür yap
     
     if (isDrawing) {
         setDepthIntensity(0); 
@@ -141,6 +146,7 @@ const App: React.FC = () => {
     setParticleColor(particleColor); 
     setCanvasRotation([0, 0, 0]);
     setClearCanvasTrigger(prev => prev + 1);
+    setIsSceneVisible(true);
   };
 
   const handleDrawingConfirm = () => {
@@ -183,6 +189,7 @@ const App: React.FC = () => {
       setImageSourceYZ(null);
       setUseImageColors(false);
       setDepthIntensity(0);
+      setIsSceneVisible(true);
   };
 
   const handleResetAll = () => {
@@ -207,6 +214,7 @@ const App: React.FC = () => {
     setCurrentShape('sphere');
     setCameraResetTrigger(prev => prev + 1);
     setBgMode('dark');
+    setIsSceneVisible(true);
   };
 
   const rotateCanvasX = () => setCanvasRotation(prev => [prev[0] + Math.PI / 2, prev[1], prev[2]]);
@@ -284,6 +292,7 @@ const App: React.FC = () => {
             clearCanvasTrigger={clearCanvasTrigger}
             currentShape={currentShape}
             cameraResetTrigger={cameraResetTrigger} 
+            isSceneVisible={isSceneVisible}
           />
       </div>
       
@@ -336,6 +345,8 @@ const App: React.FC = () => {
         isWidgetMinimized={isWidgetMinimized}
         isUIHidden={isUIHidden}
         onToggleUI={() => setIsUIHidden(!isUIHidden)}
+        isSceneVisible={isSceneVisible}
+        onToggleScene={() => setIsSceneVisible(!isSceneVisible)}
       />
     </div>
   );

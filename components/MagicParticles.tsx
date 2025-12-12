@@ -28,6 +28,7 @@ interface MagicParticlesProps {
   isDrawing: boolean;
   canvasRotation?: [number, number, number];
   currentShape?: ShapeType;
+  visible?: boolean;
 }
 
 export const MagicParticles: React.FC<MagicParticlesProps> = ({ 
@@ -50,7 +51,8 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   isPlaying,
   isDrawing,
   canvasRotation = [0, 0, 0],
-  currentShape = 'sphere'
+  currentShape = 'sphere',
+  visible = true
 }) => {
   const pointsRef = useRef<THREE.Points>(null);
   const { camera, gl } = useThree();
@@ -58,6 +60,9 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   
   const hasUserInteracted = useRef(false);
   const isRightClicking = useRef(false);
+  
+  // Visibility Transition Progress (0 = visible, 1 = hidden)
+  const visibilityProgress = useRef(0);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -713,6 +718,13 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
         isAudioActive = false;
     }
 
+    // Visibility Transition Logic
+    const targetVis = visible ? 0 : 1; 
+    // Smooth Lerp
+    visibilityProgress.current += (targetVis - visibilityProgress.current) * 0.05;
+    const isHidden = visibilityProgress.current > 0.99;
+    const transVal = visibilityProgress.current;
+
     const { current, targets, velocities, zOffsets } = simulationData;
     const positionsAttribute = pointsRef.current.geometry.attributes.position;
     const colorsAttribute = pointsRef.current.geometry.attributes.color;
@@ -754,9 +766,9 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       const iy = i * 3 + 1;
       const iz = i * 3 + 2;
 
-      const px = current[ix];
-      const py = current[iy];
-      const pz = current[iz];
+      let px = current[ix];
+      let py = current[iy];
+      let pz = current[iz];
 
       let vx = velocities[ix];
       let vy = velocities[iy];
@@ -766,6 +778,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       let ty = targets[iy];
       let tz = targets[iz];
 
+      // Original Shape Calculation
       if (imageXY || imageYZ) {
           const nx = zOffsets[ix]; const ny = zOffsets[iy]; const nz = zOffsets[iz];
           const rnd = randomnessRef.current ? randomnessRef.current[i] : 0;
@@ -786,6 +799,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
          tx += (tx/len) * spike; ty += (ty/len) * spike; tz += (tz/len) * spike;
       }
 
+      // Physics
       vx += (tx - px) * springStrength;
       vy += (ty - py) * springStrength;
       vz += (tz - pz) * springStrength;
@@ -832,12 +846,33 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
 
       vx *= friction; vy *= friction; vz *= friction;
       
-      current[ix] += vx; current[iy] += vy; current[iz] += vz;
+      px += vx; py += vy; pz += vz;
       velocities[ix] = vx; velocities[iy] = vy; velocities[iz] = vz;
-
-      positionsAttribute.setXYZ(i, current[ix], current[iy], current[iz]);
       
-       if (isAudioActive || activePreset !== 'none') {
+      // Update Physics State
+      current[ix] = px; current[iy] = py; current[iz] = pz;
+
+      // APPLY VFX TRANSITION (Explosion/Implosion)
+      // This only affects visual position, not physics state, allowing it to "reform" easily
+      if (transVal > 0.001) {
+          // Calculate a radial explosion vector
+          const explosionRadius = 50.0 * transVal * transVal; // Quadratic ease-out distance
+          const len = Math.sqrt(px*px + py*py + pz*pz) || 1;
+          const dirX = px / len; 
+          const dirY = py / len; 
+          const dirZ = pz / len;
+          
+          // Add some randomness to explosion direction based on index
+          const rnd = randomnessRef.current ? randomnessRef.current[i] : 0;
+          
+          px += dirX * explosionRadius + (rnd * explosionRadius * 0.5);
+          py += dirY * explosionRadius + (rnd * explosionRadius * 0.5);
+          pz += dirZ * explosionRadius + (rnd * explosionRadius * 0.5);
+      }
+
+      positionsAttribute.setXYZ(i, px, py, pz);
+      
+       if (isAudioActive || activePreset !== 'none' || transVal > 0.001) {
            let r=1, g=1, b=1;
            if (activePreset === 'none' && isAudioActive) {
                let freqValue = 0;
@@ -846,11 +881,8 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                let baseG = simulationData.originalColors[iy] || 1;
                let baseB = simulationData.originalColors[iz] || 1;
                
-               // Rengi beyazlatmak yerine parlat (Hue korumalı)
                const boost = 1.0 + freqValue * 1.5; 
-               r = baseR * boost; 
-               g = baseG * boost; 
-               b = baseB * boost;
+               r = baseR * boost; g = baseG * boost; b = baseB * boost;
            } else if (activePreset === 'fire') {
                r = 1.0; g = Math.random() * 0.5; b = 0.0;
            } else if (activePreset === 'water') {
@@ -859,7 +891,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                const flicker = Math.random() > 0.9 ? 1.0 : 0.7;
                r = 0.6 * flicker; g = 0.9 * flicker; b = 1.0 * flicker;
            } else if (activePreset === 'mercury') {
-               // Metalik/Gümüşi renk zorlaması (Siyah ekranda görünmesi için)
                r = 0.7; g = 0.7; b = 0.8; 
            } else if (activePreset === 'disco') {
                const freq = 0.3;
@@ -871,12 +902,23 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                g = simulationData.originalColors[iy];
                b = simulationData.originalColors[iz];
            }
+           
+           // Fade out opacity during transition
+           // Note: We are only changing color here, PointsMaterial opacity handles global fade if uniform,
+           // but vertex colors don't support per-vertex opacity in basic PointsMaterial without custom shader.
+           // However, blending darker color acts as fade in additive/normal blending on black background.
+           // For better effect, we scale the size down or just let it fly out of camera view.
+           if (transVal > 0) {
+               const fade = 1.0 - transVal;
+               r *= fade; g *= fade; b *= fade;
+           }
+
            colorsAttribute.setXYZ(i, Math.min(1,r), Math.min(1,g), Math.min(1,b));
        }
     }
 
     positionsAttribute.needsUpdate = true;
-    if (activePreset !== 'none' || isAudioActive) {
+    if (activePreset !== 'none' || isAudioActive || transVal > 0.001) {
         colorsAttribute.needsUpdate = true;
     }
 
