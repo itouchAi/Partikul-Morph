@@ -409,7 +409,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                  {/* Marquee Content */}
                  <div className={`w-full overflow-hidden ${!isPlaying ? 'opacity-50' : 'opacity-100'} transition-opacity`}>
                     {audioTitle.length > 30 ? (
-                        <div className="animate-marquee-loop" style={{ animationPlayState: isPlaying ? 'running' : 'paused' }}>
+                        <div className="animate-marquee-loop">
                             <span className="whitespace-nowrap pr-[300px] text-[15px]" style={{ fontFamily: musicFont, fontWeight: musicBold ? 'bold' : 'normal', fontStyle: musicItalic ? 'italic' : 'normal' }}>{audioTitle}</span>
                             <span className="whitespace-nowrap pr-[300px] text-[15px]" style={{ fontFamily: musicFont, fontWeight: musicBold ? 'bold' : 'normal', fontStyle: musicItalic ? 'italic' : 'normal' }}>{audioTitle}</span>
                         </div>

@@ -442,6 +442,11 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
               } else {
                   const r = c.r; const g = c.g; const b = c.b;
                   colors[i*3] = r; colors[i*3+1] = g; colors[i*3+2] = b;
+                  
+                  // Ses efektinin doğru rengi baz alması için originalColors güncellenmeli
+                  originalColors[i*3] = r; 
+                  originalColors[i*3+1] = g; 
+                  originalColors[i*3+2] = b;
               }
             }
         }
@@ -840,8 +845,12 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                let baseR = simulationData.originalColors[ix] || 1;
                let baseG = simulationData.originalColors[iy] || 1;
                let baseB = simulationData.originalColors[iz] || 1;
-               const intensity = freqValue * 1.5; 
-               r = baseR + intensity * 0.6; g = baseG + intensity * 0.6; b = baseB + intensity * 0.6;
+               
+               // Rengi beyazlatmak yerine parlat (Hue korumalı)
+               const boost = 1.0 + freqValue * 1.5; 
+               r = baseR * boost; 
+               g = baseG * boost; 
+               b = baseB * boost;
            } else if (activePreset === 'fire') {
                r = 1.0; g = Math.random() * 0.5; b = 0.0;
            } else if (activePreset === 'water') {
