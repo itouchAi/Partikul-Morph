@@ -1,12 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Experience } from './components/Experience';
 import { UIOverlay } from './components/UIOverlay';
-import * as THREE from 'three';
-
-export type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury' | 'disco';
-export type AudioMode = 'none' | 'file' | 'mic';
-export type BackgroundMode = 'dark' | 'light' | 'image' | 'color' | 'gradient' | 'auto';
-export type BgImageStyle = 'cover' | 'contain' | 'fill' | 'none';
+import { ClockWidget } from './components/ClockWidget';
+import { PresetType, AudioMode, BackgroundMode, BgImageStyle, ShapeType } from './types';
 
 const App: React.FC = () => {
   const [currentText, setCurrentText] = useState<string>('');
@@ -16,9 +12,18 @@ const App: React.FC = () => {
   const [bgMode, setBgMode] = useState<BackgroundMode>('dark');
   const [customBgColor, setCustomBgColor] = useState<string>('#000000');
   const [bgImage, setBgImage] = useState<string | null>(null);
-  const [bgImageStyle, setBgImageStyle] = useState<BgImageStyle>('cover'); // Yeni Stil State
+  const [bgImageStyle, setBgImageStyle] = useState<BgImageStyle>('cover');
 
-  // Görüntü Kaynakları (Partiküller için)
+  // Widget State
+  const [isWidgetMinimized, setIsWidgetMinimized] = useState<boolean>(false);
+
+  // UI Gizleme (Clean Mode) State'i
+  const [isUIHidden, setIsUIHidden] = useState<boolean>(false);
+
+  // Şekil State'i
+  const [currentShape, setCurrentShape] = useState<ShapeType>('sphere');
+
+  // Görüntü Kaynakları
   const [imageSourceXY, setImageSourceXY] = useState<string | null>(null);
   const [imageSourceYZ, setImageSourceYZ] = useState<string | null>(null);
 
@@ -31,6 +36,8 @@ const App: React.FC = () => {
   const [canvasRotation, setCanvasRotation] = useState<[number, number, number]>([0, 0, 0]);
   
   const [clearCanvasTrigger, setClearCanvasTrigger] = useState<number>(0);
+  const [cameraResetTrigger, setCameraResetTrigger] = useState<number>(0);
+  
   const getDrawingDataRef = useRef<{ getXY: () => string, getYZ: () => string } | null>(null);
 
   // Efekt Presets
@@ -39,6 +46,7 @@ const App: React.FC = () => {
   // Ses Ayarları
   const [audioMode, setAudioMode] = useState<AudioMode>('none');
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [audioTitle, setAudioTitle] = useState<string | null>(null);
 
   // Ayarlar
   const [repulsionStrength, setRepulsionStrength] = useState<number>(50);
@@ -84,7 +92,6 @@ const App: React.FC = () => {
       }
   };
 
-  // Yeni Arka Plan Resim Onay Fonksiyonu
   const handleBgImageConfirm = (img: string, style: BgImageStyle) => {
       setBgImage(img);
       setBgImageStyle(style);
@@ -97,7 +104,8 @@ const App: React.FC = () => {
     setImageSourceYZ(null);
     setDepthIntensity(0);
     setIsDrawing(false);
-    setCanvasRotation([0, 0, 0]); 
+    setCanvasRotation([0, 0, 0]);
+    setCameraResetTrigger(prev => prev + 1);
   };
 
   const handleDualImageUpload = (imgXY: string | null, imgYZ: string | null, useOriginalColors: boolean, keepRotation = false) => {
@@ -105,6 +113,7 @@ const App: React.FC = () => {
     setImageSourceYZ(imgYZ);
     setUseImageColors(useOriginalColors);
     setCurrentText('');
+    setActivePreset('none');
     
     if (isDrawing) {
         setDepthIntensity(0); 
@@ -155,13 +164,23 @@ const App: React.FC = () => {
     }
   };
 
-  const handleAudioChange = (mode: AudioMode, url: string | null) => {
+  const handleAudioChange = (mode: AudioMode, url: string | null, title?: string) => {
     setAudioMode(mode);
     setAudioUrl(url);
+    setAudioTitle(title || null);
   };
 
   const handleClearCanvas = () => {
       setClearCanvasTrigger(prev => prev + 1);
+  };
+
+  const handleShapeChange = (shape: ShapeType) => {
+      setCurrentShape(shape);
+      setCurrentText('');
+      setImageSourceXY(null);
+      setImageSourceYZ(null);
+      setUseImageColors(false);
+      setDepthIntensity(0);
   };
 
   const handleResetAll = () => {
@@ -174,6 +193,7 @@ const App: React.FC = () => {
     setActivePreset('none');
     setAudioMode('none');
     setAudioUrl(null);
+    setAudioTitle(null);
     setRepulsionStrength(50);
     setRepulsionRadius(50);
     setParticleCount(40000);
@@ -181,8 +201,8 @@ const App: React.FC = () => {
     setModelDensity(50);
     setIsDrawing(false);
     setCanvasRotation([0, 0, 0]);
-    
-    // Reset background to dark
+    setCurrentShape('sphere');
+    setCameraResetTrigger(prev => prev + 1);
     setBgMode('dark');
   };
 
@@ -195,7 +215,6 @@ const App: React.FC = () => {
       className="relative w-full h-full overflow-hidden" 
       onContextMenu={(e) => e.preventDefault()} 
     >
-      {/* DINAMIK ARKA PLAN KATMANI (Layer 0) */}
       <div className="absolute inset-0 z-0 transition-colors duration-1000 ease-in-out"
            style={{
                backgroundColor: bgMode === 'dark' ? '#000' : 
@@ -203,7 +222,6 @@ const App: React.FC = () => {
                                 bgMode === 'color' ? customBgColor : 'transparent'
            }}
       >
-          {/* Resim Modu - Stil State'ine göre render */}
           {bgMode === 'image' && bgImage && (
               <img 
                 src={bgImage} 
@@ -213,39 +231,31 @@ const App: React.FC = () => {
               />
           )}
 
-          {/* Gradient (Disco) Modu */}
           {bgMode === 'gradient' && (
               <div className="w-full h-full bg-[linear-gradient(45deg,#ff0000,#ff7300,#fffb00,#48ff00,#00ffd5,#002bff,#7a00ff,#ff00c8,#ff0000)] bg-[length:400%_400%] animate-gradient-xy opacity-80" 
                    style={{ animation: 'gradientMove 15s ease infinite' }}
               />
           )}
 
-          {/* Auto (Renk Döngüsü) Modu */}
           {bgMode === 'auto' && (
               <div className="w-full h-full animate-color-cycle" />
           )}
       </div>
 
       <style>{`
-          @keyframes gradientMove {
-              0% { background-position: 0% 50%; }
-              50% { background-position: 100% 50%; }
-              100% { background-position: 0% 50%; }
-          }
-          @keyframes colorCycle {
-              0% { background-color: #ff0000; }
-              20% { background-color: #ffff00; }
-              40% { background-color: #00ff00; }
-              60% { background-color: #00ffff; }
-              80% { background-color: #0000ff; }
-              100% { background-color: #ff00ff; }
-          }
-          .animate-color-cycle {
-              animation: colorCycle 10s infinite alternate linear;
-          }
+          @keyframes gradientMove { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+          @keyframes colorCycle { 0% { background-color: #ff0000; } 20% { background-color: #ffff00; } 40% { background-color: #00ff00; } 60% { background-color: #00ffff; } 80% { background-color: #0000ff; } 100% { background-color: #ff00ff; } }
+          .animate-color-cycle { animation: colorCycle 10s infinite alternate linear; }
       `}</style>
+      
+      <ClockWidget 
+        isMinimized={isWidgetMinimized} 
+        onToggleMinimize={() => setIsWidgetMinimized(!isWidgetMinimized)} 
+        bgMode={bgMode} 
+        bgImageStyle={bgImageStyle}
+        isUIHidden={isUIHidden}
+      />
 
-      {/* CANVAS KATMANI (Layer 1) */}
       <div className="absolute inset-0 z-10">
           <Experience 
             text={currentText} 
@@ -268,10 +278,11 @@ const App: React.FC = () => {
             getDrawingDataRef={getDrawingDataRef}
             canvasRotation={canvasRotation}
             clearCanvasTrigger={clearCanvasTrigger}
+            currentShape={currentShape}
+            cameraResetTrigger={cameraResetTrigger} 
           />
       </div>
       
-      {/* UI KATMANI (Layer 2) */}
       <UIOverlay 
         onSubmit={handleTextSubmit} 
         onImageUpload={handleImageUpload}
@@ -307,13 +318,18 @@ const App: React.FC = () => {
         onPresetChange={setActivePreset}
         onAudioChange={handleAudioChange}
         audioMode={audioMode}
+        audioTitle={audioTitle}
         onResetAll={handleResetAll}
         onClearCanvas={handleClearCanvas}
-        // Tema Propları
         bgMode={bgMode}
         onBgModeChange={handleBgModeChange}
-        onBgImageConfirm={handleBgImageConfirm} // Yeni Prop
+        onBgImageConfirm={handleBgImageConfirm}
         customBgColor={customBgColor}
+        currentShape={currentShape}
+        onShapeChange={handleShapeChange}
+        isWidgetMinimized={isWidgetMinimized}
+        isUIHidden={isUIHidden}
+        onToggleUI={() => setIsUIHidden(!isUIHidden)}
       />
     </div>
   );

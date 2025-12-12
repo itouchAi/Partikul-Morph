@@ -1,13 +1,11 @@
 import React, { useMemo, useRef, useEffect, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { FontLoader } from 'three/examples/jsm/loaders/FontLoader';
+import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
+import { PresetType, AudioMode, ShapeType } from '../types';
 
 const SPHERE_RADIUS = 4;
 const FONT_URL = 'https://cdn.jsdelivr.net/npm/three/examples/fonts/droid/droid_sans_bold.typeface.json';
-
-type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury' | 'disco';
-type AudioMode = 'none' | 'file' | 'mic';
 
 interface MagicParticlesProps {
   text: string;
@@ -28,6 +26,7 @@ interface MagicParticlesProps {
   audioUrl: string | null;
   isDrawing: boolean;
   canvasRotation?: [number, number, number];
+  currentShape?: ShapeType;
 }
 
 export const MagicParticles: React.FC<MagicParticlesProps> = ({ 
@@ -39,43 +38,38 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   disableMouseRepulsion, 
   depthIntensity,
   repulsionStrength,
-  repulsionRadius,
-  particleCount,
-  particleSize,
-  modelDensity,
+  repulsionRadius, 
+  particleCount, 
+  particleSize, 
+  modelDensity, 
   previousPositions,
   activePreset,
   audioMode,
   audioUrl,
   isDrawing,
-  canvasRotation = [0, 0, 0]
+  canvasRotation = [0, 0, 0],
+  currentShape = 'sphere'
 }) => {
   const pointsRef = useRef<THREE.Points>(null);
   const { camera, gl } = useThree();
   const [isProcessing, setIsProcessing] = useState(false);
   
-  // Başlangıçta imlecin merkezde algılanıp delik açmasını önlemek için flag
   const hasUserInteracted = useRef(false);
-  
   const isRightClicking = useRef(false);
   
-  // Audio Refs
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const dataArrayRef = useRef<Uint8Array | null>(null);
   const audioSourceRef = useRef<MediaElementAudioSourceNode | MediaStreamAudioSourceNode | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
 
-  const boundsRef = useRef<{minX: number, maxX: number}>({ minX: -5, maxX: 5 });
   const randomnessRef = useRef<Float32Array | null>(null);
   
-  // Cache for Normalized Shapes (0-1 range) to prevent reprocessing on density change
   const normalizedShapeRef = useRef<{
       targets: Float32Array | null,
       zOffsets: Float32Array | null
   }>({ targets: null, zOffsets: null });
 
-  // Density Scale Calc
   const densityScale = useMemo(() => {
      if (modelDensity <= 50) {
          return 2.5 - (modelDensity / 50) * 1.5;
@@ -84,7 +78,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
      }
   }, [modelDensity]);
 
-  // --- İlk Fare Hareketini Dinle ---
   useEffect(() => {
       const handleFirstMove = () => {
           hasUserInteracted.current = true;
@@ -96,7 +89,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       };
   }, []);
 
-  // --- Audio Setup ---
   useEffect(() => {
     if (audioContextRef.current) {
         audioContextRef.current.close();
@@ -158,49 +150,164 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     };
   }, [audioMode, audioUrl]);
 
-  // --- Sphere Positions Calculation ---
-  const spherePositions = useMemo(() => {
+  const getTriangleUV = (index: number, totalPoints: number) => {
+      const rows = Math.ceil(Math.sqrt(2 * totalPoints));
+      let r = Math.floor((-1 + Math.sqrt(1 + 8 * index)) / 2);
+      const startOfRow = (r * (r + 1)) / 2;
+      const c = index - startOfRow; 
+      
+      const u = (totalPoints > 1) ? c / rows : 0;
+      const v = (totalPoints > 1) ? r / rows : 0;
+      
+      return { u: 1 - v, v: u }; 
+  };
+
+  const getRectUV = (index: number, totalPoints: number) => {
+      const side = Math.ceil(Math.sqrt(totalPoints));
+      const row = Math.floor(index / side);
+      const col = index % side;
+      return {
+          u: (col / (side - 1 || 1)) - 0.5, 
+          v: (row / (side - 1 || 1)) - 0.5 
+      };
+  };
+
+  const getSpikyPoint = (idx: number, total: number, scale: number) => {
+      const y = 1 - (idx / (total - 1)) * 2;
+      const radius = Math.sqrt(1 - y * y);
+      const theta = Math.PI * (3 - Math.sqrt(5)) * idx;
+      
+      let x = Math.cos(theta) * radius;
+      let z = Math.sin(theta) * radius;
+      
+      const phi = Math.acos(y);
+      const freq = 12; 
+      const spike = Math.pow(Math.abs(Math.sin(theta * freq) * Math.sin(phi * freq)), 6);
+      const r = 1 + spike * 1.8;
+      
+      return { x: x * r * scale, y: y * r * scale, z: z * r * scale };
+  };
+
+  const shapePositions = useMemo(() => {
     const positions = new Float32Array(particleCount * 3);
-    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-    // Base radius (density applied later for sphere optimization)
-    // Actually apply density here for sphere since it's procedural
     const effectiveRadius = SPHERE_RADIUS * densityScale;
 
-    for (let i = 0; i < particleCount; i++) {
-      const y = 1 - (i / (particleCount - 1)) * 2; 
-      const radius = Math.sqrt(1 - y * y);
-      const theta = goldenAngle * i;
-
-      const x = Math.cos(theta) * radius * effectiveRadius;
-      const z = Math.sin(theta) * radius * effectiveRadius;
-      const yPos = y * effectiveRadius;
-
-      positions[i * 3] = x;
-      positions[i * 3 + 1] = yPos;
-      positions[i * 3 + 2] = z;
-    }
-    boundsRef.current = { minX: -effectiveRadius, maxX: effectiveRadius };
-    
     if (!randomnessRef.current || randomnessRef.current.length !== particleCount) {
         randomnessRef.current = new Float32Array(particleCount);
-        for(let i=0; i<particleCount; i++) {
-            randomnessRef.current[i] = (Math.random() - 0.5);
-        }
+        for(let i=0; i<particleCount; i++) randomnessRef.current[i] = (Math.random() - 0.5);
     }
-    return positions;
-  }, [particleCount, densityScale]);
 
-  // --- Initialize Simulation Data ---
+    const prismFaces = 5;
+    const prismH = effectiveRadius * 0.9;
+    const prismR = effectiveRadius * 0.9;
+    const prismV0 = { x: 0, z: prismR };
+    const prismV1 = { x: prismR * Math.sin(2 * Math.PI / 3), z: prismR * Math.cos(2 * Math.PI / 3) };
+    const prismV2 = { x: prismR * Math.sin(4 * Math.PI / 3), z: prismR * Math.cos(4 * Math.PI / 3) };
+
+    const starS = effectiveRadius * 1.2;
+    const t1v = [{x:starS, y:starS, z:starS}, {x:starS, y:-starS, z:-starS}, {x:-starS, y:starS, z:-starS}, {x:-starS, y:-starS, z:starS}];
+    const t2v = [{x:-starS, y:-starS, z:-starS}, {x:-starS, y:starS, z:starS}, {x:starS, y:-starS, z:starS}, {x:starS, y:starS, z:-starS}];
+    const tetFaces = [[0,1,2], [0,1,3], [0,2,3], [1,2,3]];
+
+    for (let i = 0; i < particleCount; i++) {
+      let pt = {x:0, y:0, z:0};
+
+      if (currentShape === 'cube') {
+          const s = effectiveRadius * 0.8;
+          const faceIdx = i % 6;
+          const subIdx = Math.floor(i / 6);
+          const totalPerFace = Math.ceil(particleCount / 6);
+          
+          const { u, v } = getRectUV(subIdx, totalPerFace); 
+          const d1 = u * 2 * s; 
+          const d2 = v * 2 * s;
+
+          switch(faceIdx) {
+              case 0: pt = { x: s, y: d1, z: d2 }; break; 
+              case 1: pt = { x: -s, y: d1, z: d2 }; break; 
+              case 2: pt = { x: d1, y: s, z: d2 }; break; 
+              case 3: pt = { x: d1, y: -s, z: d2 }; break; 
+              case 4: pt = { x: d1, y: d2, z: s }; break; 
+              case 5: pt = { x: d1, y: d2, z: -s }; break; 
+          }
+      } 
+      else if (currentShape === 'prism') {
+          const faceIdx = i % prismFaces;
+          const subIdx = Math.floor(i / prismFaces);
+          const totalPerFace = Math.ceil(particleCount / prismFaces);
+
+          if (faceIdx < 3) {
+              const { u, v } = getRectUV(subIdx, totalPerFace);
+              const y = v * 2 * prismH; 
+              const edgeT = u + 0.5;
+              
+              let pA, pB;
+              if (faceIdx === 0) { pA = prismV0; pB = prismV1; }
+              else if (faceIdx === 1) { pA = prismV1; pB = prismV2; }
+              else { pA = prismV2; pB = prismV0; }
+              
+              pt.x = pA.x + edgeT * (pB.x - pA.x);
+              pt.z = pA.z + edgeT * (pB.z - pA.z);
+              pt.y = y;
+          } else {
+              const { u, v } = getTriangleUV(subIdx, totalPerFace);
+              const isTop = faceIdx === 3;
+              pt.y = isTop ? prismH : -prismH;
+              const w = 1 - u - v;
+              pt.x = u * prismV0.x + v * prismV1.x + w * prismV2.x;
+              pt.z = u * prismV0.z + v * prismV1.z + w * prismV2.z;
+          }
+      }
+      else if (currentShape === 'star') {
+          const faceIdx = i % 8;
+          const subIdx = Math.floor(i / 8);
+          const totalPerFace = Math.ceil(particleCount / 8);
+          
+          const isT1 = faceIdx < 4;
+          const localFaceIdx = faceIdx % 4;
+          const verts = isT1 ? t1v : t2v;
+          const indices = tetFaces[localFaceIdx];
+          const A = verts[indices[0]];
+          const B = verts[indices[1]];
+          const C = verts[indices[2]];
+          
+          const { u, v } = getTriangleUV(subIdx, totalPerFace);
+          const w = 1 - u - v;
+          
+          pt.x = u * A.x + v * B.x + w * C.x;
+          pt.y = u * A.y + v * B.y + w * C.y;
+          pt.z = u * A.z + v * B.z + w * C.z;
+      }
+      else if (currentShape === 'spiky') {
+          pt = getSpikyPoint(i, particleCount, effectiveRadius * 0.8);
+      }
+      else { 
+          const y = 1 - (i / (particleCount - 1)) * 2; 
+          const radius = Math.sqrt(1 - y * y);
+          const theta = Math.PI * (3 - Math.sqrt(5)) * i;
+          pt.x = Math.cos(theta) * radius * effectiveRadius;
+          pt.z = Math.sin(theta) * radius * effectiveRadius;
+          pt.y = y * effectiveRadius;
+      }
+
+      positions[i * 3] = pt.x;
+      positions[i * 3 + 1] = pt.y;
+      positions[i * 3 + 2] = pt.z;
+    }
+    
+    return positions;
+  }, [particleCount, densityScale, currentShape]);
+
   const simulationData = useMemo(() => {
     const current = new Float32Array(particleCount * 3);
     const targets = new Float32Array(particleCount * 3);
     
-    targets.set(spherePositions);
+    targets.set(shapePositions);
     
     if (previousPositions && previousPositions.current && previousPositions.current.length === particleCount * 3) {
         current.set(previousPositions.current);
     } else {
-        current.set(spherePositions);
+        current.set(shapePositions);
     }
 
     return {
@@ -213,24 +320,18 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     };
   }, [particleCount]);
 
-  // --- Sync Sphere Targets when Density Changes ---
   useEffect(() => {
       if (!text && !imageXY && !imageYZ && !isProcessing) {
-          simulationData.targets.set(spherePositions);
-          // Reset Normalized Cache when going back to sphere
+          simulationData.targets.set(shapePositions);
           normalizedShapeRef.current.targets = null;
       }
-  }, [spherePositions, text, imageXY, imageYZ, isProcessing, simulationData]);
+  }, [shapePositions, text, imageXY, imageYZ, isProcessing, simulationData]);
 
-  // --- DENSITY CHANGE OPTIMIZATION (Prevent Explosion) ---
-  // Sadece densityScale değiştiğinde ve elimizde cachelenmiş normalize data varsa
-  // Görüntüyü baştan işlemek yerine sadece scale çarpanını güncelle.
   useEffect(() => {
       if ((imageXY || imageYZ || text) && normalizedShapeRef.current.targets) {
           const normTargets = normalizedShapeRef.current.targets;
           const currentTargets = simulationData.targets;
           const count = particleCount;
-          // Scale factor: Base Scale * Density Scale
           const scale = (SPHERE_RADIUS * 2.0) * densityScale; 
 
           for(let i=0; i < count; i++) {
@@ -242,31 +343,50 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   }, [densityScale, imageXY, imageYZ, text, particleCount, simulationData]);
 
 
-  // Event Listeners (Mouse Interaction)
   useEffect(() => {
+    let clickStartX = 0;
+    let clickStartY = 0;
+    let clickStartTime = 0;
+
     const handlePointerDown = (e: PointerEvent) => {
       if (e.button === 2) {
         isRightClicking.current = true;
       }
-      if (disableMouseRepulsion) return;
       if (e.button === 0) { 
+        clickStartX = e.clientX;
+        clickStartY = e.clientY;
+        clickStartTime = Date.now();
+
         if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
             audioContextRef.current.resume();
-        }
-        const { velocities } = simulationData;
-        const explodeForce = 3.0 + (repulsionStrength / 100) * 10.0;
-        for (let i = 0; i < particleCount * 3; i++) {
-            let mod = 1.0;
-            if (activePreset === 'water') mod = 0.5; 
-            if (activePreset === 'electric') mod = 1.5; 
-            if (activePreset === 'mercury') mod = 0.3; 
-            if (activePreset === 'disco') mod = 1.2;
-            velocities[i] += (Math.random() - 0.5) * explodeForce * mod; 
         }
       }
     };
 
-    const handlePointerUp = () => { isRightClicking.current = false; };
+    const handlePointerUp = (e: PointerEvent) => {
+        isRightClicking.current = false;
+        if (disableMouseRepulsion) return;
+
+        if (e.button === 0) {
+            const diffX = Math.abs(e.clientX - clickStartX);
+            const diffY = Math.abs(e.clientY - clickStartY);
+            const diffTime = Date.now() - clickStartTime;
+
+            if (diffX < 5 && diffY < 5 && diffTime < 300) {
+                const { velocities } = simulationData;
+                const explodeForce = 3.0 + (repulsionStrength / 100) * 10.0;
+                for (let i = 0; i < particleCount * 3; i++) {
+                    let mod = 1.0;
+                    if (activePreset === 'water') mod = 0.5; 
+                    if (activePreset === 'electric') mod = 1.5; 
+                    if (activePreset === 'mercury') mod = 0.3; 
+                    if (activePreset === 'disco') mod = 1.2;
+                    velocities[i] += (Math.random() - 0.5) * explodeForce * mod; 
+                }
+            }
+        }
+    };
+
     gl.domElement.addEventListener('pointerdown', handlePointerDown);
     gl.domElement.addEventListener('pointerup', handlePointerUp);
     return () => {
@@ -275,7 +395,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     };
   }, [gl.domElement, simulationData, disableMouseRepulsion, repulsionStrength, particleCount, activePreset]);
 
-  // Color Updates
   useEffect(() => {
     const { colors, originalColors } = simulationData;
     if (activePreset === 'none') {
@@ -284,9 +403,24 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
         } else {
             const c = new THREE.Color(color);
             for(let i=0; i<particleCount; i++) {
-              const r = c.r; const g = c.g; const b = c.b;
-              colors[i*3] = r; colors[i*3+1] = g; colors[i*3+2] = b;
-              originalColors[i*3] = r; originalColors[i*3+1] = g; originalColors[i*3+2] = b;
+              if (imageXY || imageYZ) {
+                   const origR = originalColors[i*3];
+                   const origG = originalColors[i*3+1];
+                   const origB = originalColors[i*3+2];
+                   
+                   // Parlaklık hesabı
+                   const brightness = 0.299 * origR + 0.587 * origG + 0.114 * origB;
+                   
+                   // Geliştirilmiş kontrast formülü
+                   const contrastFactor = Math.pow(brightness, 1.5); 
+                   
+                   colors[i*3] = c.r * contrastFactor; 
+                   colors[i*3+1] = c.g * contrastFactor; 
+                   colors[i*3+2] = c.b * contrastFactor;
+              } else {
+                  const r = c.r; const g = c.g; const b = c.b;
+                  colors[i*3] = r; colors[i*3+1] = g; colors[i*3+2] = b;
+              }
             }
         }
         if (pointsRef.current) {
@@ -295,102 +429,104 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     }
   }, [color, useImageColors, imageXY, imageYZ, simulationData, particleCount, activePreset]);
 
-  // --- Text Processing ---
   useEffect(() => {
     if (imageXY || imageYZ || isProcessing) return;
     if (!text || text.trim() === '') return;
 
     setIsProcessing(true);
-    const loader = new FontLoader();
-    loader.load(FONT_URL, (font) => {
-        const fontSize = 2;
-        const shapes = font.generateShapes(text, fontSize);
-        if (shapes.length === 0) {
-            simulationData.targets.set(spherePositions);
-            setIsProcessing(false);
-            return;
-        }
-        const geometry = new THREE.ExtrudeGeometry(shapes, { depth: 1.5, bevelEnabled: true });
-        geometry.computeBoundingBox();
-        const bbox = geometry.boundingBox!;
-        const xMid = -0.5 * (bbox.max.x - bbox.min.x);
-        const yMid = -0.5 * (bbox.max.y - bbox.min.y);
-        const zMid = -0.5 * (bbox.max.z - bbox.min.z);
-        geometry.translate(xMid, yMid, zMid);
-        
-        const maxDim = Math.max(bbox.max.x - bbox.min.x, bbox.max.y - bbox.min.y);
-        // Normalize Scale Logic: We want to store "Unit" vectors (approx)
-        const normalizeScale = 1 / (maxDim || 1);
-        geometry.scale(normalizeScale, normalizeScale, normalizeScale);
-
-        if (geometry.index) geometry.toNonIndexed();
-        const posAttribute = geometry.attributes.position;
-        const triangleCount = posAttribute.count / 3;
-        
-        if (triangleCount === 0) { geometry.dispose(); setIsProcessing(false); return; }
-
-        const triangleAreas = [];
-        let totalArea = 0;
-        const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
-        const va = new THREE.Vector3(), vb = new THREE.Vector3();
-
-        for (let i = 0; i < triangleCount; i++) {
-            const i3 = i * 3;
-            a.fromBufferAttribute(posAttribute, i3);
-            b.fromBufferAttribute(posAttribute, i3 + 1);
-            c.fromBufferAttribute(posAttribute, i3 + 2);
-            va.subVectors(b, a);
-            vb.subVectors(c, a);
-            const area = va.cross(vb).length() * 0.5;
-            triangleAreas.push(area);
-            totalArea += area;
-        }
-
-        const cumulativeAreas = new Float32Array(triangleCount);
-        let acc = 0;
-        for (let i = 0; i < triangleCount; i++) { acc += triangleAreas[i]; cumulativeAreas[i] = acc; }
-
-        // Cache normalized data
-        const normTargets = new Float32Array(particleCount * 3);
-        const tempTarget = new THREE.Vector3();
-
-        for (let i = 0; i < particleCount; i++) {
-            const r = Math.random() * totalArea;
-            let left = 0, right = triangleCount - 1, selectedTriangleIndex = 0;
-            while (left <= right) {
-                const mid = Math.floor((left + right) / 2);
-                if (cumulativeAreas[mid] >= r) { selectedTriangleIndex = mid; right = mid - 1; } 
-                else { left = mid + 1; }
+    
+    // SAFE FONT LOADER
+    try {
+        const loader = new FontLoader();
+        loader.load(FONT_URL, (font) => {
+            const fontSize = 2;
+            const shapes = font.generateShapes(text, fontSize);
+            if (shapes.length === 0) {
+                simulationData.targets.set(shapePositions);
+                setIsProcessing(false);
+                return;
             }
-            const i3 = selectedTriangleIndex * 3;
-            a.fromBufferAttribute(posAttribute, i3);
-            b.fromBufferAttribute(posAttribute, i3 + 1);
-            c.fromBufferAttribute(posAttribute, i3 + 2);
-            let r1 = Math.random(), r2 = Math.random();
-            if (r1 + r2 > 1) { r1 = 1 - r1; r2 = 1 - r2; }
-            tempTarget.copy(a).addScaledVector(b.clone().sub(a), r1).addScaledVector(c.clone().sub(a), r2);
+            const geometry = new THREE.ExtrudeGeometry(shapes, { depth: 1.5, bevelEnabled: true });
+            geometry.computeBoundingBox();
+            const bbox = geometry.boundingBox!;
+            const xMid = -0.5 * (bbox.max.x - bbox.min.x);
+            const yMid = -0.5 * (bbox.max.y - bbox.min.y);
+            const zMid = -0.5 * (bbox.max.z - bbox.min.z);
+            geometry.translate(xMid, yMid, zMid);
             
-            normTargets[i * 3] = tempTarget.x;
-            normTargets[i * 3 + 1] = tempTarget.y;
-            normTargets[i * 3 + 2] = tempTarget.z;
-        }
+            const maxDim = Math.max(bbox.max.x - bbox.min.x, bbox.max.y - bbox.min.y);
+            const normalizeScale = 1 / (maxDim || 1);
+            geometry.scale(normalizeScale, normalizeScale, normalizeScale);
 
-        normalizedShapeRef.current.targets = normTargets;
-        simulationData.zOffsets.fill(0); 
-        
-        // Initial Apply
-        const currentTargets = simulationData.targets;
-        const scale = (SPHERE_RADIUS * 2.2) * densityScale;
-        for(let i=0; i<particleCount*3; i++) {
-            currentTargets[i] = normTargets[i] * scale;
-        }
+            if (geometry.index) geometry.toNonIndexed();
+            const posAttribute = geometry.attributes.position;
+            const triangleCount = posAttribute.count / 3;
+            
+            if (triangleCount === 0) { geometry.dispose(); setIsProcessing(false); return; }
 
-        geometry.dispose();
+            const triangleAreas = [];
+            let totalArea = 0;
+            const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+            const va = new THREE.Vector3(), vb = new THREE.Vector3();
+
+            for (let i = 0; i < triangleCount; i++) {
+                const i3 = i * 3;
+                a.fromBufferAttribute(posAttribute, i3);
+                b.fromBufferAttribute(posAttribute, i3 + 1);
+                c.fromBufferAttribute(posAttribute, i3 + 2);
+                va.subVectors(b, a);
+                vb.subVectors(c, a);
+                const area = va.cross(vb).length() * 0.5;
+                triangleAreas.push(area);
+                totalArea += area;
+            }
+
+            const cumulativeAreas = new Float32Array(triangleCount);
+            let acc = 0;
+            for (let i = 0; i < triangleCount; i++) { acc += triangleAreas[i]; cumulativeAreas[i] = acc; }
+
+            const normTargets = new Float32Array(particleCount * 3);
+            const tempTarget = new THREE.Vector3();
+
+            for (let i = 0; i < particleCount; i++) {
+                const r = Math.random() * totalArea;
+                let left = 0, right = triangleCount - 1, selectedTriangleIndex = 0;
+                while (left <= right) {
+                    const mid = Math.floor((left + right) / 2);
+                    if (cumulativeAreas[mid] >= r) { selectedTriangleIndex = mid; right = mid - 1; } 
+                    else { left = mid + 1; }
+                }
+                const i3 = selectedTriangleIndex * 3;
+                a.fromBufferAttribute(posAttribute, i3);
+                b.fromBufferAttribute(posAttribute, i3 + 1);
+                c.fromBufferAttribute(posAttribute, i3 + 2);
+                let r1 = Math.random(), r2 = Math.random();
+                if (r1 + r2 > 1) { r1 = 1 - r1; r2 = 1 - r2; }
+                tempTarget.copy(a).addScaledVector(b.clone().sub(a), r1).addScaledVector(c.clone().sub(a), r2);
+                
+                normTargets[i * 3] = tempTarget.x;
+                normTargets[i * 3 + 1] = tempTarget.y;
+                normTargets[i * 3 + 2] = tempTarget.z;
+            }
+
+            normalizedShapeRef.current.targets = normTargets;
+            simulationData.zOffsets.fill(0); 
+            
+            const currentTargets = simulationData.targets;
+            const scale = (SPHERE_RADIUS * 2.2) * densityScale;
+            for(let i=0; i<particleCount*3; i++) {
+                currentTargets[i] = normTargets[i] * scale;
+            }
+
+            geometry.dispose();
+            setIsProcessing(false);
+        });
+    } catch(e) {
+        console.error("Font loading error:", e);
         setIsProcessing(false);
-    });
-  }, [text, particleCount]); // removed densityScale dependency (handled by separate effect)
+    }
+  }, [text, particleCount]);
 
-  // --- Dual Image Processing ---
   useEffect(() => {
     if (!imageXY && !imageYZ) return;
     
@@ -418,9 +554,11 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                     for (let x = 0; x < w; x += 2) {
                         const index = (y * w + x) * 4;
                         if (data[index + 3] > 10) { 
+                            const brightness = (data[index] + data[index+1] + data[index+2]) / (3 * 255);
                             pixels.push({
                                 x: (x / w) - 0.5, y: 0.5 - (y / h), 
                                 r: data[index]/255, g: data[index+1]/255, b: data[index+2]/255,
+                                brightness: brightness 
                             });
                         }
                     }
@@ -445,32 +583,47 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
         const rotationEuler = new THREE.Euler(...canvasRotation);
         const tempVec = new THREE.Vector3();
 
+        const countXY = totalPixels > 0 ? Math.floor(particleCount * (pixelsXY.length / totalPixels)) : 0;
+
         for(let i = 0; i < particleCount; i++) {
-            const useXY = Math.random() < (pixelsXY.length / (totalPixels || 1));
-            const sourcePool = useXY ? pixelsXY : pixelsYZ;
-            
-            if (sourcePool.length === 0) {
-                 const fallback = useXY ? pixelsYZ : pixelsXY;
-                 if (fallback.length === 0) continue;
+            let useXY = false;
+            let activeSource = pixelsYZ;
+            let pixelIndex = 0;
+
+            if (pixelsXY.length > 0 && (i < countXY || pixelsYZ.length === 0)) {
+                useXY = true;
+                activeSource = pixelsXY;
+                const allocated = (pixelsYZ.length === 0) ? particleCount : countXY;
+                const ratio = activeSource.length / (allocated || 1);
+                pixelIndex = Math.floor(i * ratio);
+            } else {
+                useXY = false;
+                activeSource = pixelsYZ;
+                const allocated = particleCount - countXY;
+                const localIndex = i - countXY;
+                const ratio = activeSource.length / (allocated || 1);
+                pixelIndex = Math.floor(localIndex * ratio);
             }
-            const activeSource = (sourcePool.length > 0) ? sourcePool : (useXY ? pixelsYZ : pixelsXY);
             
-            const pixel = activeSource.length > 0 
-                ? activeSource[Math.floor(Math.random() * activeSource.length)]
-                : { x:0, y:0, r:1, g:1, b:1 }; 
+            if (pixelIndex >= activeSource.length) pixelIndex = activeSource.length - 1;
 
-            const pX = pixel.x; // Normalized -0.5 to 0.5
-            const pY = pixel.y; // Normalized -0.5 to 0.5
+            const pixel = activeSource[pixelIndex] || { x:0, y:0, r:1, g:1, b:1, brightness: 1 }; 
 
-            if (useXY && sourcePool.length > 0) {
+            const pX = pixel.x;
+            const pY = pixel.y;
+            
+            // Eğer tema rengi kullanılıyorsa, parlaklığa göre daha güçlü bir kabartma (relief) uygula
+            const reliefBase = pixel.brightness - 0.5;
+            const reliefFactor = !useImageColors ? reliefBase * 1.5 : 0; // Mono modda derinlik artırıldı
+
+            if (useXY) {
                 tempVec.set(pX, pY, 0);
-                newZOffsets[i*3] = 0; newZOffsets[i*3+1] = 0; newZOffsets[i*3+2] = 1; 
+                newZOffsets[i*3] = 0; newZOffsets[i*3+1] = 0; newZOffsets[i*3+2] = 1 + reliefFactor; 
             } else {
                 tempVec.set(0, pY, pX); 
-                newZOffsets[i*3] = 1; newZOffsets[i*3+1] = 0; newZOffsets[i*3+2] = 0;
+                newZOffsets[i*3] = 1 + reliefFactor; newZOffsets[i*3+1] = 0; newZOffsets[i*3+2] = 0;
             }
 
-            // Store normalized unit vector rotated
             tempVec.applyEuler(rotationEuler);
             
             const normal = new THREE.Vector3(newZOffsets[i*3], newZOffsets[i*3+1], newZOffsets[i*3+2]);
@@ -481,17 +634,23 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
             normTargets[i * 3 + 1] = tempVec.y;
             normTargets[i * 3 + 2] = tempVec.z;
 
-            newOriginalColors[i * 3] = pixel.r; newOriginalColors[i * 3 + 1] = pixel.g; newOriginalColors[i * 3 + 2] = pixel.b;
+            newOriginalColors[i * 3] = pixel.r; 
+            newOriginalColors[i * 3 + 1] = pixel.g; 
+            newOriginalColors[i * 3 + 2] = pixel.b;
+            
             if (useImageColors) { 
                 newColors[i * 3] = pixel.r; newColors[i * 3 + 1] = pixel.g; newColors[i * 3 + 2] = pixel.b; 
             } else { 
-                newColors[i * 3] = defaultColorRGB.r; newColors[i * 3 + 1] = defaultColorRGB.g; newColors[i * 3 + 2] = defaultColorRGB.b; 
+                // Mono modda kontrastlı renklendirme
+                const shade = Math.pow(pixel.brightness, 1.5);
+                newColors[i * 3] = defaultColorRGB.r * shade; 
+                newColors[i * 3 + 1] = defaultColorRGB.g * shade; 
+                newColors[i * 3 + 2] = defaultColorRGB.b * shade; 
             }
         }
         
         normalizedShapeRef.current.targets = normTargets;
 
-        // Apply Initial Scale
         const currentTargets = simulationData.targets;
         const scale = (SPHERE_RADIUS * 2.0) * densityScale;
         for(let i=0; i<particleCount*3; i++) {
@@ -507,12 +666,9 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
 
     });
     
-  }, [imageXY, imageYZ, simulationData, particleCount, color, useImageColors, canvasRotation]); // Removed densityScale
+  }, [imageXY, imageYZ, simulationData, particleCount, color, useImageColors, canvasRotation]);
 
-  // --- Animation Loop ---
   useFrame((state) => {
-    // Processing sırasında return etmiyoruz ki patlama (unmount) olmasın.
-    // Ancak veri tam değilse (ilk yükleme) zaten targets 0 gelir veya eski data kalır, sorun yok.
     if (isDrawing || !pointsRef.current) return;
 
     let isAudioActive = audioMode !== 'none';
@@ -540,10 +696,8 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     const rayOrigin = new THREE.Vector3();
     const rayDir = new THREE.Vector3();
 
-    // INTERACTION CHECK: Sadece kullanıcı etkileşime geçtiyse ve canvas içindeyse çalışır.
     if (isInsideCanvas && !disableMouseRepulsion && !isRightClicking.current && repulsionStrength > 0 && hasUserInteracted.current) {
         state.raycaster.setFromCamera(pointer, camera);
-        // Interaction için sadece Ray'in Origin ve Direction'ını saklıyoruz
         rayOrigin.copy(state.raycaster.ray.origin);
         rayDir.copy(state.raycaster.ray.direction).normalize();
         hasInteractionTarget = true;
@@ -562,7 +716,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     const time = state.clock.elapsedTime;
     const bufferLength = dataArrayRef.current ? dataArrayRef.current.length : 1;
 
-    // Reuse vectors to prevent GC
     const p = new THREE.Vector3();
     const vLine = new THREE.Vector3();
     const projected = new THREE.Vector3();
@@ -622,42 +775,27 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       }
 
       if (hasInteractionTarget) {
-        // --- NEW INTERACTION LOGIC: RAY-POINT DISTANCE ---
-        // Calculate distance from Particle(P) to the Infinite Line defined by Ray(Origin, Direction)
-        // Vector from RayOrigin to Particle
         p.set(px, py, pz);
         vLine.subVectors(p, rayOrigin);
-        
-        // Projection length of vLine onto RayDirection
         const t = vLine.dot(rayDir);
-        
-        // Closest point on the line to the particle
         projected.copy(rayOrigin).addScaledVector(rayDir, t);
-        
-        // Perpendicular distance vector (from line to particle)
         distVec.subVectors(p, projected);
-        
         const distSq = distVec.lengthSq();
         const radiusSq = dynamicRepulsionRadius * dynamicRepulsionRadius;
 
         if (distSq < radiusSq) {
             const dist = Math.sqrt(distSq);
-            // Force decreases with distance from the ray core
             const forceFactor = (1 - dist / dynamicRepulsionRadius) * repulsionForce;
-            
-            // Push away from the line
             let nx = 0, ny = 0, nz = 0;
             if (dist > 0.0001) {
                 nx = distVec.x / dist;
                 ny = distVec.y / dist;
                 nz = distVec.z / dist;
             } else {
-                // If exactly on line (rare), push random
                 nx = Math.random() - 0.5;
                 ny = Math.random() - 0.5;
                 nz = Math.random() - 0.5;
             }
-            
             vx += nx * forceFactor;
             vy += ny * forceFactor;
             vz += nz * forceFactor;
@@ -688,6 +826,9 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
            } else if (activePreset === 'electric') {
                const flicker = Math.random() > 0.9 ? 1.0 : 0.7;
                r = 0.6 * flicker; g = 0.9 * flicker; b = 1.0 * flicker;
+           } else if (activePreset === 'mercury') {
+               // Metalik/Gümüşi renk zorlaması (Siyah ekranda görünmesi için)
+               r = 0.8; g = 0.8; b = 0.9;
            } else if (activePreset === 'disco') {
                const freq = 0.3;
                r = Math.sin(current[ix] * freq + time) * 0.5 + 0.5;

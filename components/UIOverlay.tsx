@@ -1,9 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-
-type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury' | 'disco';
-type AudioMode = 'none' | 'file' | 'mic';
-type BackgroundMode = 'dark' | 'light' | 'image' | 'color' | 'gradient' | 'auto';
-type BgImageStyle = 'cover' | 'contain' | 'fill' | 'none';
+import { PresetType, AudioMode, BackgroundMode, BgImageStyle, ShapeType } from '../types';
 
 interface UIOverlayProps {
   onSubmit: (text: string) => void;
@@ -44,8 +40,9 @@ interface UIOverlayProps {
   activePreset: PresetType;
   onPresetChange: (preset: PresetType) => void;
   // Ses
-  onAudioChange: (mode: AudioMode, url: string | null) => void;
+  onAudioChange: (mode: AudioMode, url: string | null, title?: string) => void;
   audioMode: AudioMode;
+  audioTitle?: string | null;
   // Reset
   onResetAll: () => void;
   onClearCanvas: () => void;
@@ -53,8 +50,19 @@ interface UIOverlayProps {
   // Arka Plan Tema Kontrolleri
   bgMode: BackgroundMode;
   onBgModeChange: (mode: BackgroundMode, data?: string) => void;
-  onBgImageConfirm: (img: string, style: BgImageStyle) => void; // Yeni prop
+  onBgImageConfirm: (img: string, style: BgImageStyle) => void; 
   customBgColor: string;
+
+  // Şekil Kontrol
+  currentShape: ShapeType;
+  onShapeChange: (shape: ShapeType) => void;
+  
+  // Widget Durumu
+  isWidgetMinimized: boolean;
+
+  // UI Gizleme
+  isUIHidden: boolean;
+  onToggleUI: () => void;
 }
 
 export const UIOverlay: React.FC<UIOverlayProps> = ({ 
@@ -92,73 +100,78 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   onPresetChange,
   onAudioChange,
   audioMode,
+  audioTitle,
   onResetAll,
   onClearCanvas,
   bgMode,
   onBgModeChange,
   onBgImageConfirm,
-  customBgColor
+  customBgColor,
+  currentShape,
+  onShapeChange,
+  isWidgetMinimized,
+  isUIHidden,
+  onToggleUI
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
-  
-  // Yeni: Arka Plan Renk Seçici State'i
   const [isBgPaletteOpen, setIsBgPaletteOpen] = useState(false);
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
+  const [isShapeMenuOpen, setIsShapeMenuOpen] = useState(false); 
   const [savedColor, setSavedColor] = useState(currentColor);
   
-  // Modals
   const [showImageModal, setShowImageModal] = useState(false);
   const [showAudioModal, setShowAudioModal] = useState(false);
   
-  // Arka Plan Resim Modal State'leri
   const [showBgSettingsModal, setShowBgSettingsModal] = useState(false);
   const [pendingBgImage, setPendingBgImage] = useState<string | null>(null);
   const [selectedBgStyle, setSelectedBgStyle] = useState<BgImageStyle>('cover');
+  const [useOriginalImageColors, setUseOriginalImageColors] = useState(true);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const bgImageInputRef = useRef<HTMLInputElement>(null);
   
-  // (Eski hidden input referansını kaldırdık, custom UI kullanacağız)
   const [pendingImage, setPendingImage] = useState<string | null>(null);
 
-  // Helper to determine if we are in light mode for UI styling
   const isLightMode = bgMode === 'light';
+  const isAnyMenuOpen = isSettingsOpen || isThemeMenuOpen || isShapeMenuOpen || isBgPaletteOpen || isPaletteOpen;
+
+  const closeAllMenus = () => {
+    setIsSettingsOpen(false);
+    setIsThemeMenuOpen(false);
+    setIsShapeMenuOpen(false);
+    setIsBgPaletteOpen(false);
+    setIsPaletteOpen(false);
+    onInteractionEnd();
+  };
 
   useEffect(() => {
     if (isDrawing) {
-        setIsSettingsOpen(true);
-        setIsThemeMenuOpen(false);
-        setIsBgPaletteOpen(false);
-    } else {
-        setIsSettingsOpen(false);
+        closeAllMenus();
     }
   }, [isDrawing]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
-      if (inputValue.trim() === '') {
-        onSubmit(''); 
-      } else {
-        onSubmit(inputValue);
-      }
+      if (inputValue.trim() === '') { onSubmit(''); } else { onSubmit(inputValue); }
     }
   };
 
-  // --- PARTICLE COLOR HANDLER ---
+  const handleShapeSelect = (shape: ShapeType) => {
+      onShapeChange(shape);
+      setIsShapeMenuOpen(false);
+  };
+
   const handleSpectrumMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-
     const hue = x * 360;
     const lightness = (1 - y) * 100;
-
-    const newColor = `hsl(${hue}, 100%, ${lightness}%)`;
-    onColorChange(newColor);
+    onColorChange(`hsl(${hue}, 100%, ${lightness}%)`);
   };
 
   const handleSpectrumClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -168,27 +181,24 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
     const hue = x * 360;
     const lightness = (1 - y) * 100;
     const color = `hsl(${hue}, 100%, ${lightness}%)`;
-
     setSavedColor(color);
     onColorChange(color);
-    
-    if (!isDrawing) {
-        setIsPaletteOpen(false);
-    }
+    if (!isDrawing) setIsPaletteOpen(false);
     onInteractionEnd();
   };
 
-  // --- BACKGROUND COLOR HANDLER (NEW) ---
   const handleBgSpectrumMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-
     const hue = x * 360;
     const lightness = (1 - y) * 100;
+    onBgModeChange('color', `hsl(${hue}, 100%, ${lightness}%)`);
+  };
 
-    const newColor = `hsl(${hue}, 100%, ${lightness}%)`;
-    onBgModeChange('color', newColor);
+  const handleBgSpectrumClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    handleBgSpectrumMove(e); 
+    setIsBgPaletteOpen(false); 
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -198,6 +208,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
       reader.onload = (event) => {
         if (event.target?.result) {
           setPendingImage(event.target.result as string);
+          setUseOriginalImageColors(true); // Default
           setShowImageModal(true);
           onInteractionStart();
         }
@@ -226,9 +237,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   }
 
   const confirmBgImage = () => {
-      if (pendingBgImage) {
-          onBgImageConfirm(pendingBgImage, selectedBgStyle);
-      }
+      if (pendingBgImage) onBgImageConfirm(pendingBgImage, selectedBgStyle);
       setShowBgSettingsModal(false);
       setPendingBgImage(null);
       onInteractionEnd();
@@ -238,16 +247,17 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
     const file = e.target.files?.[0];
     if (file) {
         const url = URL.createObjectURL(file);
-        onAudioChange('file', url);
+        // Dosya ismini al
+        onAudioChange('file', url, file.name);
         setShowAudioModal(false);
         onInteractionEnd();
     }
     if (audioInputRef.current) audioInputRef.current.value = '';
   }
 
-  const confirmImageUpload = (useOriginal: boolean) => {
+  const confirmImageUpload = () => {
     if (pendingImage) {
-      onImageUpload(pendingImage, useOriginal);
+      onImageUpload(pendingImage, useOriginalImageColors);
       setInputValue('');
     }
     setShowImageModal(false);
@@ -260,28 +270,41 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
     onParticleCountChange(clamped);
   };
 
-  const cancelDrawing = () => {
-    onResetAll(); 
-  };
+  const cancelDrawing = () => onResetAll();
+  const stopProp = (e: React.PointerEvent | React.MouseEvent | React.TouchEvent) => e.stopPropagation();
 
-  const stopProp = (e: React.PointerEvent | React.MouseEvent | React.TouchEvent) => {
-      e.stopPropagation();
-  };
-
-  // --- Theme Menu Toggle Logic ---
   const toggleThemeMenu = () => {
       setIsThemeMenuOpen(!isThemeMenuOpen);
+      setIsShapeMenuOpen(false);
       setIsSettingsOpen(false); 
       setIsBgPaletteOpen(false);
   };
+
+  const toggleShapeMenu = () => {
+      setIsShapeMenuOpen(!isShapeMenuOpen);
+      setIsThemeMenuOpen(false);
+      setIsSettingsOpen(false);
+      setIsBgPaletteOpen(false);
+  }
+
+  const bgStyleLabels: Record<BgImageStyle, string> = {
+      'cover': 'KAPLA',
+      'contain': 'SIĞDIR',
+      'fill': 'DOLDUR',
+      'none': 'YOK'
+  };
+
+  const hideTopClass = isUIHidden ? "-translate-y-[200%] opacity-0 pointer-events-none" : "translate-y-0 opacity-100";
+  const hideBottomClass = isUIHidden ? "translate-y-[200%] opacity-0 pointer-events-none" : "translate-y-0 opacity-100";
+  const hideLeftClass = isUIHidden ? "-translate-x-[200%] opacity-0 pointer-events-none" : "translate-x-0 opacity-100";
 
   return (
     <>
       <style>{`
         @keyframes electric-pulse { 0% { box-shadow: 0 0 5px #0ff; border-color: #0ff; } 50% { box-shadow: 0 0 20px #0ff, 0 0 10px #fff; border-color: #fff; } 100% { box-shadow: 0 0 5px #0ff; border-color: #0ff; } }
         @keyframes fire-burn { 0% { box-shadow: 0 0 5px #f00; border-color: #f00; background: rgba(255,0,0,0.1); } 50% { box-shadow: 0 -5px 20px #ff0, 0 0 10px #f00; border-color: #ff0; background: rgba(255,50,0,0.3); } 100% { box-shadow: 0 0 5px #f00; border-color: #f00; background: rgba(255,0,0,0.1); } }
-        @keyframes water-flow { 0% { border-radius: 4px; box-shadow: 0 0 5px #00f; border-color: #00f; } 50% { border-radius: 12px; box-shadow: 0 5px 15px #0af; border-color: #0af; } 100% { border-radius: 4px; box-shadow: 0 0 5px #00f; border-color: #00f; } }
-        @keyframes mercury-blob { 0% { transform: scale(1); border-color: #aaa; background: rgba(200,200,200,0.2); } 50% { transform: scale(1.05); border-color: #fff; background: rgba(255,255,255,0.4); } 100% { transform: scale(1); border-color: #aaa; background: rgba(200,200,200,0.2); } }
+        @keyframes water-flow { 0% { box-shadow: 0 0 5px #00f; border-color: #00f; } 50% { box-shadow: 0 5px 15px #0af; border-color: #0af; } 100% { box-shadow: 0 0 5px #00f; border-color: #00f; } }
+        @keyframes mercury-blob { 0% { transform: scale(1); border-color: #aaa; background: rgba(200,200,200,0.2); } 50% { transform: scale(1.1); border-color: #fff; background: rgba(255,255,255,0.4); } 100% { transform: scale(1); border-color: #aaa; background: rgba(200,200,200,0.2); } }
         @keyframes disco-spin { 0% { border-color: #f00; box-shadow: 0 0 10px #f00; } 20% { border-color: #ff0; box-shadow: 0 0 10px #ff0; } 40% { border-color: #0f0; box-shadow: 0 0 10px #0f0; } 60% { border-color: #0ff; box-shadow: 0 0 10px #0ff; } 80% { border-color: #00f; box-shadow: 0 0 10px #00f; } 100% { border-color: #f0f; box-shadow: 0 0 10px #f0f; } }
         .preset-btn { transition: all 0.3s ease; }
         .preset-btn:hover { transform: scale(1.1); }
@@ -291,8 +314,6 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         .preset-mercury:hover, .preset-mercury.active { animation: mercury-blob 3s infinite ease-in-out; }
         .preset-disco:hover, .preset-disco.active { animation: disco-spin 2s infinite linear; }
         .cursor-pen { cursor: crosshair; }
-        
-        /* Tema Menüsü Animasyonu (Soldan Sağa) */
         .theme-menu-item { opacity: 0; transform: translateX(20px); transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
         .theme-menu-open .theme-menu-item { opacity: 1; transform: translateX(0); }
         .theme-menu-open .item-1 { transition-delay: 0.05s; }
@@ -301,23 +322,16 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         .theme-menu-open .item-4 { transition-delay: 0.2s; }
         .theme-menu-open .item-5 { transition-delay: 0.25s; }
         .theme-menu-open .item-6 { transition-delay: 0.3s; }
-
-        /* Konfigürasyon Menüsü Animasyonu (Keyframes - Daha güvenilir) */
-        @keyframes vfx-entry {
-            0% { opacity: 0; transform: translateY(-20px) scale(0.95); filter: blur(5px); }
-            100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0px); }
-        }
-        
-        @keyframes menu-pop {
-            0% { opacity: 0; transform: scale(0.9) translateY(-10px); }
-            100% { opacity: 1; transform: scale(1) translateY(0); }
-        }
-
+        .shape-menu-open .theme-menu-item { opacity: 1; transform: translateX(0); }
+        .shape-menu-open .item-1 { transition-delay: 0.05s; }
+        .shape-menu-open .item-2 { transition-delay: 0.1s; }
+        .shape-menu-open .item-3 { transition-delay: 0.15s; }
+        .shape-menu-open .item-4 { transition-delay: 0.2s; }
+        .shape-menu-open .item-5 { transition-delay: 0.25s; }
+        @keyframes vfx-entry { 0% { opacity: 0; transform: translateY(-20px) scale(0.95); filter: blur(5px); } 100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0px); } }
+        @keyframes menu-pop { 0% { opacity: 0; transform: scale(0.9) translateY(-10px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
         .menu-animate { animation: menu-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
-        
-        /* Liste öğeleri için animasyon */
         .vfx-item { opacity: 0; animation: vfx-entry 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-        
         .delay-1 { animation-delay: 0.05s; }
         .delay-2 { animation-delay: 0.1s; }
         .delay-3 { animation-delay: 0.15s; }
@@ -325,62 +339,157 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         .delay-5 { animation-delay: 0.25s; }
         .delay-6 { animation-delay: 0.3s; }
         .delay-7 { animation-delay: 0.35s; }
+        .oval-picker-container { animation: menu-pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
         
-        /* Alt kısımdaki oval renk seçici için */
-        .oval-picker-container {
-             animation: menu-pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        /* Marquee Animation */
+        @keyframes marquee-gapless {
+          0% { transform: translateX(0%); }
+          100% { transform: translateX(-50%); } /* %50 çünkü içeriği ikiye katlıyoruz */
+        }
+        .animate-marquee-gapless {
+          display: flex;
+          animation: marquee-gapless 10s linear infinite;
         }
       `}</style>
+      
+      {isAnyMenuOpen && ( <div className="fixed inset-0 z-40 bg-transparent" onPointerDown={closeAllMenus} /> )}
 
-      {/* SOL TARAFA PRESET MENÜSÜ */}
-      <div className="absolute left-6 top-1/2 -translate-y-1/2 z-50 flex flex-col gap-4"
-           onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd} onPointerDown={stopProp}>
-          <button onClick={() => onPresetChange(activePreset === 'electric' ? 'none' : 'electric')} className={`preset-btn preset-electric w-12 h-12 border border-white/20 bg-black/50 backdrop-blur-md rounded flex items-center justify-center group ${activePreset === 'electric' ? 'active' : ''}`} title="Elektrik Efekti"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-cyan-400"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></button>
-          <button onClick={() => onPresetChange(activePreset === 'fire' ? 'none' : 'fire')} className={`preset-btn preset-fire w-12 h-12 border border-white/20 bg-black/50 backdrop-blur-md rounded flex items-center justify-center group ${activePreset === 'fire' ? 'active' : ''}`} title="Ateş Efekti"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.1.2-2.2.5-3 .5.7 1 1.3 2 1.5z"></path></svg></button>
-          <button onClick={() => onPresetChange(activePreset === 'water' ? 'none' : 'water')} className={`preset-btn preset-water w-12 h-12 border border-white/20 bg-black/50 backdrop-blur-md rounded flex items-center justify-center group ${activePreset === 'water' ? 'active' : ''}`} title="Su Efekti"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg></button>
-          <button onClick={() => onPresetChange(activePreset === 'mercury' ? 'none' : 'mercury')} className={`preset-btn preset-mercury w-12 h-12 border border-white/20 bg-black/50 backdrop-blur-md rounded flex items-center justify-center group ${activePreset === 'mercury' ? 'active' : ''}`} title="Civa Efekti"><div className="w-5 h-5 rounded-full bg-gradient-to-br from-gray-300 to-gray-600 border border-white/50"></div></button>
-          <button onClick={() => onPresetChange(activePreset === 'disco' ? 'none' : 'disco')} className={`preset-btn preset-disco w-12 h-12 border border-white/20 bg-black/50 backdrop-blur-md rounded flex items-center justify-center group ${activePreset === 'disco' ? 'active' : ''}`} title="Disco Modu"><div className="w-5 h-5 rounded-full bg-[conic-gradient(red,yellow,lime,aqua,blue,magenta,red)] border border-white/50 animate-spin" style={{ animationDuration: '3s' }}></div></button>
+      <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
+      <input type="file" accept="audio/*" ref={audioInputRef} onChange={handleAudioSelect} className="hidden" />
+      <input type="file" accept="image/*" ref={bgImageInputRef} onChange={handleBgImageSelect} className="hidden" />
+
+      {/* --- AUDIO TITLE INDICATOR --- */}
+      {audioTitle && audioMode !== 'none' && !isUIHidden && (
+          <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-40 rounded-full px-5 py-2 backdrop-blur-md shadow-lg border border-white/10 flex items-center justify-center overflow-hidden max-w-[250px] ${isLightMode ? 'bg-black/10 text-black' : 'bg-white/10 text-white'}`}>
+             <div className="w-full overflow-hidden whitespace-nowrap">
+                {audioTitle.length > 30 ? (
+                    <div className="animate-marquee-gapless">
+                        <span className="px-4 text-[15px] font-mono">{audioTitle}</span>
+                        <span className="px-4 text-[15px] font-mono">{audioTitle}</span>
+                        {/* Yedek kopyalar boşluksuz döngü için */}
+                        <span className="px-4 text-[15px] font-mono">{audioTitle}</span>
+                        <span className="px-4 text-[15px] font-mono">{audioTitle}</span>
+                    </div>
+                ) : (
+                    <span className="text-[15px] font-mono text-center block w-full">{audioTitle}</span>
+                )}
+             </div>
+          </div>
+      )}
+
+      {/* --- MODALS --- */}
+      
+      {/* Resim Yükleme Modalı */}
+      {showImageModal && pendingImage && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
+          <div className="bg-[#111] border border-white/20 p-6 rounded-2xl max-w-sm w-full shadow-2xl animate-in zoom-in duration-300">
+            <h3 className="text-white font-mono text-lg mb-4 text-center">Resim Önizleme</h3>
+            <div className="w-full h-48 bg-black/50 rounded-lg mb-4 overflow-hidden flex items-center justify-center border border-white/10">
+              <img src={pendingImage} alt="Preview" className="max-w-full max-h-full object-contain" />
+            </div>
+            <div className="flex gap-2 mb-6">
+                <button 
+                  onClick={() => setUseOriginalImageColors(true)} 
+                  className={`flex-1 py-2 text-xs rounded border transition-all flex flex-col items-center justify-center gap-1 ${useOriginalImageColors ? 'bg-blue-600/30 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}
+                >
+                  <span className="font-bold">ORİJİNAL RENKLER</span>
+                </button>
+                <button 
+                  onClick={() => setUseOriginalImageColors(false)} 
+                  className={`flex-1 py-2 text-xs rounded border transition-all flex flex-col items-center justify-center gap-1 ${!useOriginalImageColors ? 'bg-blue-600/30 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}
+                >
+                  <span className="font-bold">TEMA RENGİ</span>
+                </button>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => { setShowImageModal(false); setPendingImage(null); onInteractionEnd(); }} className="flex-1 py-3 rounded-lg bg-white/10 text-white/70 hover:bg-white/20 hover:text-white transition-colors font-medium">İptal</button>
+              <button onClick={confirmImageUpload} className="flex-1 py-3 rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors font-bold shadow-lg shadow-blue-900/50">Oluştur</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Arka Plan Resim Modalı */}
+      {showBgSettingsModal && pendingBgImage && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
+           <div className="bg-[#111] border border-white/20 p-6 rounded-2xl max-w-sm w-full shadow-2xl animate-in zoom-in duration-300">
+             <h3 className="text-white font-mono text-lg mb-4 text-center">Arka Plan Ayarı</h3>
+             <div className="w-full h-40 bg-gray-900 rounded-lg mb-4 overflow-hidden relative border border-white/10">
+               <img src={pendingBgImage} alt="Bg Preview" className="w-full h-full" style={{ objectFit: selectedBgStyle }} />
+             </div>
+             <div className="grid grid-cols-3 gap-2 mb-6">
+                {(['cover', 'contain', 'fill'] as BgImageStyle[]).map(style => (
+                  <button key={style} onClick={() => setSelectedBgStyle(style)} className={`py-2 text-xs rounded border transition-all ${selectedBgStyle === style ? 'bg-blue-600/30 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}>
+                    {bgStyleLabels[style]}
+                  </button>
+                ))}
+             </div>
+             <div className="flex gap-3">
+               <button onClick={() => { setShowBgSettingsModal(false); setPendingBgImage(null); onInteractionEnd(); }} className="flex-1 py-3 rounded-lg bg-white/10 text-white/70 hover:bg-white/20 hover:text-white transition-colors font-medium">İptal</button>
+               <button onClick={confirmBgImage} className="flex-1 py-3 rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors font-bold shadow-lg shadow-blue-900/50">Uygula</button>
+             </div>
+           </div>
+        </div>
+      )}
+      
+      {/* Ses Yükleme Onay Modalı (Basit) */}
+      {showAudioModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
+           <div className="bg-[#111] border border-white/20 p-6 rounded-2xl max-w-sm w-full shadow-2xl animate-in zoom-in duration-300">
+             <div className="flex flex-col items-center gap-4 mb-6">
+               <div className="w-16 h-16 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center border border-green-500/50">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+               </div>
+               <h3 className="text-white font-mono text-lg text-center">Ses Kaynağı Seçin</h3>
+               <p className="text-gray-400 text-xs text-center">Partiküller seçtiğiniz müziğin ritmine göre dans edecek.</p>
+             </div>
+             <div className="flex gap-3">
+                <button onClick={() => { setShowAudioModal(false); onInteractionEnd(); }} className="flex-1 py-3 rounded-lg bg-white/10 text-white/70 hover:bg-white/20 hover:text-white transition-colors font-medium">İptal</button>
+                <button onClick={() => audioInputRef.current?.click()} className="flex-1 py-3 rounded-lg bg-green-600 text-white hover:bg-green-500 transition-colors font-bold shadow-lg shadow-green-900/50">Dosya Seç</button>
+             </div>
+             <div className="mt-3">
+                <button onClick={() => { onAudioChange('mic', null, 'Mikrofon Girişi'); setShowAudioModal(false); onInteractionEnd(); }} className="w-full py-3 rounded-lg border border-white/10 text-white/50 hover:bg-white/5 hover:text-white transition-colors text-sm">veya Mikrofon Kullan</button>
+             </div>
+           </div>
+        </div>
+      )}
+
+      {/* --- MENU VE KONTROLLER (MEVCUT KOD) --- */}
+
+      <div className={`absolute left-6 z-50 flex flex-col gap-4 transition-all duration-500 ease-in-out ${isWidgetMinimized ? 'top-32' : 'top-[230px]'} ${hideLeftClass}`} onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd} onPointerDown={stopProp}>
+          <button onClick={() => onPresetChange(activePreset === 'electric' ? 'none' : 'electric')} className={`preset-btn preset-electric w-10 h-10 rounded-full border backdrop-blur-md flex items-center justify-center group relative ${activePreset === 'electric' ? 'active' : ''} ${isLightMode ? 'border-black/20 bg-black/5 hover:bg-black/10' : 'border-white/20 bg-black/50 hover:bg-white/10'}`} title="Elektrik Efekti"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-cyan-400"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></button>
+          <button onClick={() => onPresetChange(activePreset === 'fire' ? 'none' : 'fire')} className={`preset-btn preset-fire w-10 h-10 rounded-full border backdrop-blur-md flex items-center justify-center group relative ${activePreset === 'fire' ? 'active' : ''} ${isLightMode ? 'border-black/20 bg-black/5 hover:bg-black/10' : 'border-white/20 bg-black/50 hover:bg-white/10'}`} title="Ateş Efekti"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.1.2-2.2.5-3 .5.7 1 1.3 2 1.5z"></path></svg></button>
+          <button onClick={() => onPresetChange(activePreset === 'water' ? 'none' : 'water')} className={`preset-btn preset-water w-10 h-10 rounded-full border backdrop-blur-md flex items-center justify-center group relative ${activePreset === 'water' ? 'active' : ''} ${isLightMode ? 'border-black/20 bg-black/5 hover:bg-black/10' : 'border-white/20 bg-black/50 hover:bg-white/10'}`} title="Su Efekti"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg></button>
+          <button onClick={() => onPresetChange(activePreset === 'mercury' ? 'none' : 'mercury')} className={`preset-btn preset-mercury w-10 h-10 rounded-full border backdrop-blur-md flex items-center justify-center group relative ${activePreset === 'mercury' ? 'active' : ''} ${isLightMode ? 'border-black/20 bg-black/5 hover:bg-black/10' : 'border-white/20 bg-black/50 hover:bg-white/10'}`} title="Civa Efekti"><div className="w-4 h-4 rounded-full bg-gradient-to-br from-gray-300 to-gray-600 border border-white/50"></div></button>
+          <button onClick={() => onPresetChange(activePreset === 'disco' ? 'none' : 'disco')} className={`preset-btn preset-disco w-10 h-10 rounded-full border backdrop-blur-md flex items-center justify-center group relative ${activePreset === 'disco' ? 'active' : ''} ${isLightMode ? 'border-black/20 bg-black/5 hover:bg-black/10' : 'border-white/20 bg-black/50 hover:bg-white/10'}`} title="Disco Modu"><div className="w-4 h-4 rounded-full bg-[conic-gradient(red,yellow,lime,aqua,blue,magenta,red)] border border-white/50 animate-spin" style={{ animationDuration: '3s' }}></div></button>
       </div>
 
-      {/* Sol Alt Köşe: Talimatlar */}
       {!isDrawing && (
-        <div className={`absolute bottom-6 left-6 z-10 pointer-events-none select-none text-xs font-mono space-y-2 ${isLightMode ? 'text-black/60' : 'text-white/50'}`}>
+        <div className={`absolute bottom-6 left-6 z-10 pointer-events-none select-none text-xs font-mono space-y-2 transition-transform duration-500 ${hideBottomClass} ${isLightMode ? 'text-black/60' : 'text-white/50'}`}>
             <div className="flex items-center gap-2"><div className={`w-4 h-4 border rounded grid place-items-center text-[10px] ${isLightMode ? 'border-black/30' : 'border-white/30'}`}>L</div><span>Sol Tık: Dağıt</span></div>
             <div className="flex items-center gap-2"><div className={`w-4 h-4 border rounded grid place-items-center text-[10px] ${isLightMode ? 'border-black/30' : 'border-white/30'}`}>R</div><span>Sağ Tık: Döndür</span></div>
             <div className="flex items-center gap-2"><div className={`w-4 h-4 border rounded grid place-items-center text-[10px] ${isLightMode ? 'border-black/30' : 'border-white/30'}`}>M</div><span>Tekerlek: Yakınlaş</span></div>
         </div>
       )}
       {isDrawing && (
-         <div className="absolute top-10 left-1/2 -translate-x-1/2 z-50 pointer-events-none select-none bg-black/50 px-6 py-2 rounded-full border border-white/20 backdrop-blur-md flex flex-col items-center">
+         <div className={`absolute top-10 left-1/2 -translate-x-1/2 z-50 pointer-events-none select-none bg-black/50 px-6 py-2 rounded-full border border-white/20 backdrop-blur-md flex flex-col items-center transition-transform duration-500 ${hideTopClass}`}>
             <p className="text-white text-sm font-mono animate-pulse">3D Tuval: Sol Tık Çiz - Sağ Tık Kamera</p>
             <p className="text-white/50 text-[10px] mt-1">Tuvali döndürmek için sağ menüdeki okları kullanın</p>
          </div>
       )}
       
-      {/* --- SAĞ ALT KÖŞE: ARKA PLAN RENK SEÇİCİ (YENİ OVAL TASARIM) --- */}
-      {isBgPaletteOpen && (
+      {isBgPaletteOpen && !isUIHidden && (
           <div className="absolute bottom-24 right-4 z-50 origin-bottom-right oval-picker-container" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd} onPointerDown={stopProp}>
               <div className={`backdrop-blur-xl border border-white/20 p-2 rounded-3xl shadow-2xl relative w-64 ${isLightMode ? 'bg-black/90' : 'bg-[#111]/90'}`}>
-                  {/* Başlık ve Kapat */}
                   <div className="flex justify-between items-center px-3 py-1 border-b border-white/10 mb-2">
                       <span className="text-white/70 text-[10px] font-mono tracking-widest uppercase">BG Color VFX</span>
                       <button onClick={() => setIsBgPaletteOpen(false)} className="w-5 h-5 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/20 text-white/50 hover:text-white transition-colors"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M18 6L6 18M6 6l12 12"></path></svg></button>
                   </div>
-                  
-                  {/* Spectrum Area */}
-                  <div 
-                      className="w-full h-24 rounded-2xl cursor-crosshair relative overflow-hidden shadow-inner border border-white/10 group mx-auto" 
-                      onMouseMove={handleBgSpectrumMove} 
-                      onClick={(e) => { handleBgSpectrumMove(e); }}
-                      style={{ background: 'white' }}
-                  >
+                  <div className="w-full h-24 rounded-2xl cursor-crosshair relative overflow-hidden shadow-inner border border-white/10 group mx-auto" onMouseMove={handleBgSpectrumMove} onClick={handleBgSpectrumClick} style={{ background: 'white' }}>
                      <div className="absolute inset-0" style={{ background: 'linear-gradient(to right, #f00 0%, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00 100%)' }} />
                      <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(255,255,255,1) 0%, rgba(255,255,255,0) 50%, rgba(0,0,0,0) 50%, rgba(0,0,0,1) 100%)' }} />
-                     
-                     {/* Hover Effect */}
                      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none border-2 border-white/20 rounded-2xl"></div>
                   </div>
-
                   <div className="mt-2 flex gap-3 items-center justify-center pb-1">
                        <div className="w-5 h-5 rounded-full border border-white/30 shadow-[0_0_10px_rgba(255,255,255,0.2)]" style={{ backgroundColor: customBgColor }}></div>
                        <span className="text-[10px] font-mono text-white/50">{customBgColor.toUpperCase()}</span>
@@ -389,83 +498,37 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           </div>
       )}
 
-      {/* SAĞ ÜST KÖŞE: AYARLAR ve TEMA */}
-      <div className="absolute top-6 right-6 z-50 flex flex-col items-end gap-3" onPointerDown={stopProp}>
-        
-        {/* Buton Grubu */}
+      <button onClick={onToggleUI} className={`absolute bottom-6 right-6 z-[60] w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border backdrop-blur-md shadow-lg ${isLightMode ? 'border-black/20 text-black bg-black/5 hover:bg-black/10' : 'border-white/20 text-white bg-white/10 hover:bg-white/20'}`} title={isUIHidden ? "Arayüzü Göster" : "Temiz Mod"}>
+          {isUIHidden ? (<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>) : (<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>)}
+      </button>
+
+      <div className={`absolute top-6 right-6 z-50 flex flex-col items-end gap-3 transition-transform duration-500 ${hideTopClass}`} onPointerDown={stopProp}>
         <div className="flex gap-2">
-            {/* TEMA MENÜ BUTONU */}
-            <button 
-                onClick={toggleThemeMenu}
-                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border ${
-                    isLightMode 
-                    ? `border-black/20 text-black ${isThemeMenuOpen ? 'bg-black/20 scale-110 shadow-[0_0_15px_rgba(0,0,0,0.3)]' : 'bg-black/5 hover:bg-black/10'}`
-                    : `border-white/20 text-white ${isThemeMenuOpen ? 'bg-white/20 scale-110 shadow-[0_0_15px_rgba(255,255,255,0.3)]' : 'bg-white/5 hover:bg-white/10'}`
-                }`}
-                title="Tema ve Arka Plan"
-            >
-                {/* Tema İkonu (Palet/Fırça Karışımı) */}
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path><path d="M16 16.5l-3 3"></path><path d="M11 11.5l-3 3"></path></svg>
-            </button>
-
-            {/* AYARLAR BUTONU */}
-            <button 
-                onClick={() => { setIsSettingsOpen(!isSettingsOpen); setIsThemeMenuOpen(false); setIsBgPaletteOpen(false); }} 
-                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border ${
-                    isLightMode 
-                    ? `border-black/20 text-black ${isSettingsOpen ? 'bg-black/20 rotate-90' : 'bg-black/5 hover:bg-black/10'}`
-                    : `border-white/20 text-white ${isSettingsOpen ? 'bg-white/20 rotate-90' : 'bg-white/5 hover:bg-white/10'}`
-                }`} 
-                title="Konfigürasyon"
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-            </button>
+            <button onClick={toggleShapeMenu} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border ${isLightMode ? `border-black/20 text-black ${isShapeMenuOpen ? 'bg-black/20 scale-110 shadow-[0_0_15px_rgba(0,0,0,0.3)]' : 'bg-black/5 hover:bg-black/10'}` : `border-white/20 text-white ${isShapeMenuOpen ? 'bg-white/20 scale-110 shadow-[0_0_15px_rgba(255,255,255,0.3)]' : 'bg-white/5 hover:bg-white/10'}`}`} title="Şekil Değiştir"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg></button>
+            <button onClick={toggleThemeMenu} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border ${isLightMode ? `border-black/20 text-black ${isThemeMenuOpen ? 'bg-black/20 scale-110 shadow-[0_0_15px_rgba(0,0,0,0.3)]' : 'bg-black/5 hover:bg-black/10'}` : `border-white/20 text-white ${isThemeMenuOpen ? 'bg-white/20 scale-110 shadow-[0_0_15px_rgba(255,255,255,0.3)]' : 'bg-white/5 hover:bg-white/10'}`}`} title="Tema ve Arka Plan"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path><path d="M16 16.5l-3 3"></path><path d="M11 11.5l-3 3"></path></svg></button>
+            <button onClick={() => { setIsSettingsOpen(!isSettingsOpen); setIsThemeMenuOpen(false); setIsShapeMenuOpen(false); setIsBgPaletteOpen(false); }} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border ${isLightMode ? `border-black/20 text-black ${isSettingsOpen ? 'bg-black/20 rotate-90' : 'bg-black/5 hover:bg-black/10'}` : `border-white/20 text-white ${isSettingsOpen ? 'bg-white/20 rotate-90' : 'bg-white/5 hover:bg-white/10'}`}`} title="Konfigürasyon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
         </div>
 
-        {/* TEMA MENÜSÜ İÇERİĞİ */}
+        <div className={`absolute top-12 right-24 flex flex-col gap-2 items-end ${isShapeMenuOpen ? 'shape-menu-open pointer-events-auto' : 'pointer-events-none'}`}>
+             <button onClick={() => handleShapeSelect('sphere')} className={`theme-menu-item item-1 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/60 backdrop-blur text-white hover:scale-110 ${currentShape === 'sphere' ? 'ring-2 ring-blue-400 bg-blue-500/30' : ''}`} title="Küre"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle></svg></button>
+             <button onClick={() => handleShapeSelect('cube')} className={`theme-menu-item item-2 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/60 backdrop-blur text-white hover:scale-110 ${currentShape === 'cube' ? 'ring-2 ring-blue-400 bg-blue-500/30' : ''}`} title="Küp"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg></button>
+             <button onClick={() => handleShapeSelect('prism')} className={`theme-menu-item item-3 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/60 backdrop-blur text-white hover:scale-110 ${currentShape === 'prism' ? 'ring-2 ring-blue-400 bg-blue-500/30' : ''}`} title="Üçgen Prizma"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path></svg></button>
+             <button onClick={() => handleShapeSelect('star')} className={`theme-menu-item item-4 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/60 backdrop-blur text-white hover:scale-110 ${currentShape === 'star' ? 'ring-2 ring-blue-400 bg-blue-500/30' : ''}`} title="Yıldız"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg></button>
+             <button onClick={() => handleShapeSelect('spiky')} className={`theme-menu-item item-5 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/60 backdrop-blur text-white hover:scale-110 ${currentShape === 'spiky' ? 'ring-2 ring-blue-400 bg-blue-500/30' : ''}`} title="Dikenli Küre"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg></button>
+        </div>
+
         <div className={`absolute top-12 right-12 flex flex-col gap-2 items-end ${isThemeMenuOpen ? 'theme-menu-open pointer-events-auto' : 'pointer-events-none'}`}>
-             
-             <input type="file" accept="image/*" ref={bgImageInputRef} onChange={handleBgImageSelect} className="hidden" />
-             {/* Gizli Color Input kaldırıldı, artık custom UI kullanılıyor */}
-
-             {/* 1. Karanlık Tema */}
-             <button onClick={() => onBgModeChange('dark')} className={`theme-menu-item item-1 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/80 text-white hover:scale-110 ${bgMode === 'dark' ? 'ring-2 ring-white' : ''}`} title="Karanlık Mod">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
-             </button>
-
-             {/* 2. Aydınlık Tema (Güneş) */}
-             <button onClick={() => onBgModeChange('light')} className={`theme-menu-item item-2 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-white text-black hover:scale-110 ${bgMode === 'light' ? 'ring-2 ring-yellow-400' : ''}`} title="Aydınlık Mod (Partikülleri Siyah Yapar)">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
-             </button>
-
-             {/* 3. Resim Yükleme */}
-             <button onClick={() => bgImageInputRef.current?.click()} className={`theme-menu-item item-3 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gray-800 text-white hover:scale-110 ${bgMode === 'image' ? 'ring-2 ring-blue-400' : ''}`} title="Arka Plan Resmi">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-             </button>
-
-             {/* 4. Renk Paleti (ÖZEL AÇILIR MENÜ) */}
-             <button onClick={() => { setIsBgPaletteOpen(!isBgPaletteOpen); onBgModeChange('color', customBgColor); }} className={`theme-menu-item item-4 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gradient-to-tr from-pink-500 to-purple-500 text-white hover:scale-110 ${bgMode === 'color' ? 'ring-2 ring-pink-300' : ''}`} title="Arka Plan Rengi">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5"></circle><circle cx="17.5" cy="10.5" r=".5"></circle><circle cx="8.5" cy="7.5" r=".5"></circle><circle cx="6.5" cy="12.5" r=".5"></circle><path d="M12 22.5A9.5 9.5 0 0 0 22 12c0-4.9-4.5-9-10-9S2 7.1 2 12c0 2.25 1 5.38 2.5 7.5"></path></svg>
-             </button>
-
-             {/* 5. Gradient (Disco) */}
-             <button onClick={() => onBgModeChange('gradient')} className={`theme-menu-item item-5 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-[linear-gradient(45deg,red,blue)] text-white hover:scale-110 ${bgMode === 'gradient' ? 'ring-2 ring-purple-400' : ''}`} title="Disko Modu">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-             </button>
-
-             {/* 6. Auto (Rastgele Renk) */}
-             <button onClick={() => onBgModeChange('auto')} className={`theme-menu-item item-6 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gray-900 text-white hover:scale-110 ${bgMode === 'auto' ? 'ring-2 ring-green-400' : ''}`} title="Otomatik Döngü">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
-             </button>
-
+             <button onClick={() => onBgModeChange('dark')} className={`theme-menu-item item-1 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/80 text-white hover:scale-110 ${bgMode === 'dark' ? 'ring-2 ring-white' : ''}`} title="Karanlık Mod"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg></button>
+             <button onClick={() => onBgModeChange('light')} className={`theme-menu-item item-2 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-white text-black hover:scale-110 ${bgMode === 'light' ? 'ring-2 ring-yellow-400' : ''}`} title="Aydınlık Mod"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg></button>
+             <button onClick={() => bgImageInputRef.current?.click()} className={`theme-menu-item item-3 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gray-800 text-white hover:scale-110 ${bgMode === 'image' ? 'ring-2 ring-blue-400' : ''}`} title="Arka Plan Resmi"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></button>
+             <button onClick={() => { setIsBgPaletteOpen(!isBgPaletteOpen); }} className={`theme-menu-item item-4 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gradient-to-tr from-pink-500 to-purple-500 text-white hover:scale-110 ${bgMode === 'color' ? 'ring-2 ring-pink-300' : ''}`} title="Arka Plan Rengi"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5"></circle><circle cx="17.5" cy="10.5" r=".5"></circle><circle cx="8.5" cy="7.5" r=".5"></circle><circle cx="6.5" cy="12.5" r=".5"></circle><path d="M12 22.5A9.5 9.5 0 0 0 22 12c0-4.9-4.5-9-10-9S2 7.1 2 12c0 2.25 1 5.38 2.5 7.5"></path></svg></button>
+             <button onClick={() => onBgModeChange('gradient')} className={`theme-menu-item item-5 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-[linear-gradient(45deg,red,blue)] text-white hover:scale-110 ${bgMode === 'gradient' ? 'ring-2 ring-purple-400' : ''}`} title="Disko Modu"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></button>
+             <button onClick={() => onBgModeChange('auto')} className={`theme-menu-item item-6 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gray-900 text-white hover:scale-110 ${bgMode === 'auto' ? 'ring-2 ring-green-400' : ''}`} title="Otomatik Döngü"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg></button>
         </div>
 
-        {/* AYARLAR MENÜSÜ (Stagger Animasyonlu) */}
         {isSettingsOpen && (
           <div className="absolute top-12 right-0 w-64 bg-[#111]/90 backdrop-blur-xl border border-white/10 rounded-xl p-5 shadow-2xl origin-top-right menu-animate" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>
             <h4 className="text-white/80 text-xs font-mono uppercase tracking-widest mb-4 border-b border-white/10 pb-2 vfx-item delay-1">Konfigürasyon</h4>
-            
-            {/* Sadece Çizim Modunda Görünen Ayarlar */}
             {isDrawing && (
                 <div className="mb-5 border-b border-white/10 pb-4 space-y-4 vfx-item delay-2">
                     <div>
@@ -482,138 +545,31 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                     </div>
                 </div>
             )}
-
             <div className="mb-5 vfx-item delay-3"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>İmleç Gücü</span><span>{repulsionStrength}%</span></div><input type="range" min="0" max="100" value={repulsionStrength} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onRepulsionChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
             <div className="mb-5 vfx-item delay-4"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>İmleç Çapı</span><span>{repulsionRadius}%</span></div><input type="range" min="0" max="100" value={repulsionRadius} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onRadiusChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
-            
             <div className="mb-5 vfx-item delay-5">
               <div className="flex justify-between text-xs text-gray-400 mb-1"><span>Partikül Sayısı</span></div>
               <div className="flex items-center gap-2">
-                <button 
-                  type="button"
-                  onClick={() => handleCountChange(particleCount - 2000)} 
-                  onPointerDown={stopProp} 
-                  onMouseEnter={onInteractionStart}
-                  onMouseLeave={onInteractionEnd}
-                  className="w-8 h-8 rounded bg-white/10 hover:bg-white/20 text-white flex items-center justify-center border border-white/10"
-                >-</button>
+                <button type="button" onClick={() => handleCountChange(particleCount - 2000)} onPointerDown={stopProp} onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd} className="w-8 h-8 rounded bg-white/10 hover:bg-white/20 text-white flex items-center justify-center border border-white/10">-</button>
                 <input type="number" min="22000" max="50000" step="2000" value={particleCount} onChange={(e) => handleCountChange(parseInt(e.target.value) || 22000)} className="flex-1 h-8 bg-black/50 border border-white/10 rounded text-center text-white text-xs font-mono focus:outline-none focus:border-white/40"/>
-                <button 
-                  type="button"
-                  onClick={() => handleCountChange(particleCount + 2000)} 
-                  onPointerDown={stopProp}
-                  onMouseEnter={onInteractionStart}
-                  onMouseLeave={onInteractionEnd}
-                  className="w-8 h-8 rounded bg-white/10 hover:bg-white/20 text-white flex items-center justify-center border border-white/10"
-                >+</button>
+                <button type="button" onClick={() => handleCountChange(particleCount + 2000)} onPointerDown={stopProp} onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd} className="w-8 h-8 rounded bg-white/10 hover:bg-white/20 text-white flex items-center justify-center border border-white/10">+</button>
               </div>
               <div className="text-[10px] text-gray-600 mt-1 text-center">Max: 50,000</div>
             </div>
-            
             <div className="mb-5 vfx-item delay-6"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>Model Sıkılığı</span><span>{modelDensity}%</span></div><input type="range" min="0" max="100" value={modelDensity} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onModelDensityChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
-
-            {/* Derinlik Slayderı (Sadece Resim/Görsel Modunda) */}
             {hasImage && !isDrawing && (
                 <div className="mb-5 border-t border-white/10 pt-4 vfx-item delay-7">
                     <div className="flex justify-between text-xs text-blue-300 mb-1"><span>Derinlik Etkisi</span><span>{Math.round(depthIntensity * 10)}%</span></div>
                     <input type="range" min="0" max="10" step="0.1" value={depthIntensity} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onDepthChange(parseFloat(e.target.value))} className="w-full h-1.5 bg-blue-500/30 rounded-lg appearance-none cursor-pointer accent-blue-400 hover:accent-blue-200"/>
                 </div>
             )}
-
             <div className="mb-2 vfx-item delay-7"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>Partikül Boyutu</span><span>{particleSize}</span></div><input type="range" min="1" max="100" value={particleSize} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onParticleSizeChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
           </div>
         )}
       </div>
 
-      {/* MODAL: Arka Plan Resim Ayarları (YENİ) */}
-      {showBgSettingsModal && pendingBgImage && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in zoom-in duration-300" onPointerDown={stopProp}>
-          <div className="bg-[#111] border border-white/10 p-6 rounded-2xl shadow-2xl max-w-lg w-full">
-            <h3 className="text-white text-lg font-light mb-4 text-center">Arka Plan Ayarları</h3>
-            
-            {/* Önizleme Alanı */}
-            <div className="w-full h-48 bg-black/50 border border-white/10 rounded-lg mb-6 overflow-hidden relative group">
-                <img 
-                    src={pendingBgImage} 
-                    alt="preview" 
-                    className="w-full h-full transition-all duration-300"
-                    style={{ objectFit: selectedBgStyle === 'fill' ? 'fill' : selectedBgStyle === 'none' ? 'none' : selectedBgStyle }}
-                />
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <span className="text-white/20 text-4xl font-bold opacity-0 group-hover:opacity-100 transition-opacity">ÖNİZLEME</span>
-                </div>
-            </div>
-
-            <p className="text-gray-400 text-xs mb-3 text-center">Görünüm Stili Seçin:</p>
-            
-            <div className="grid grid-cols-2 gap-3 mb-6">
-                <button onClick={() => setSelectedBgStyle('cover')} className={`py-3 rounded-lg border transition-all duration-200 ${selectedBgStyle === 'cover' ? 'bg-blue-600/30 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}>
-                    <span className="block font-medium text-sm">Doldur (Cover)</span>
-                    <span className="text-[10px] opacity-60">Boşluk kalmaz, kesilebilir</span>
-                </button>
-                <button onClick={() => setSelectedBgStyle('contain')} className={`py-3 rounded-lg border transition-all duration-200 ${selectedBgStyle === 'contain' ? 'bg-blue-600/30 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}>
-                    <span className="block font-medium text-sm">Sığdır (Contain)</span>
-                    <span className="text-[10px] opacity-60">Tamamı görünür, boşluk kalabilir</span>
-                </button>
-                <button onClick={() => setSelectedBgStyle('fill')} className={`py-3 rounded-lg border transition-all duration-200 ${selectedBgStyle === 'fill' ? 'bg-blue-600/30 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}>
-                    <span className="block font-medium text-sm">Uzat (Stretch)</span>
-                    <span className="text-[10px] opacity-60">Ekrana yayılır, oran bozulur</span>
-                </button>
-                <button onClick={() => setSelectedBgStyle('none')} className={`py-3 rounded-lg border transition-all duration-200 ${selectedBgStyle === 'none' ? 'bg-blue-600/30 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}>
-                    <span className="block font-medium text-sm">Ortala (Center)</span>
-                    <span className="text-[10px] opacity-60">Orijinal boyut, ortalanır</span>
-                </button>
-            </div>
-
-            <div className="flex gap-3">
-                <button onClick={() => { setShowBgSettingsModal(false); setPendingBgImage(null); onInteractionEnd(); }} className="flex-1 py-3 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white text-sm transition-colors">İptal</button>
-                <button onClick={confirmBgImage} className="flex-1 py-3 rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white text-sm font-bold shadow-lg shadow-blue-900/20 transition-all transform hover:scale-[1.02]">Uygula</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: Resim Seçimi (Partikül) */}
-      {showImageModal && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onPointerDown={stopProp}>
-          <div className="bg-[#111] border border-white/10 p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center">
-            <h3 className="text-white text-lg font-light mb-4">Görsel İşleme Seçeneği</h3>
-            <p className="text-gray-400 text-sm mb-6">Partiküller görseli oluştururken hangi renkleri kullansın?</p>
-            <div className="flex flex-col gap-3">
-              <button onClick={() => confirmImageUpload(false)} className="w-full py-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/30 text-white transition-all duration-200 group"><span className="font-medium">Tek Renk</span><span className="text-xs text-gray-500 block mt-1 group-hover:text-gray-400">Mevcut seçili palet rengi kullanılır</span></button>
-              <button onClick={() => confirmImageUpload(true)} className="w-full py-3 rounded-lg bg-gradient-to-r from-pink-500/20 via-purple-500/20 to-blue-500/20 hover:from-pink-500/30 hover:via-purple-500/30 hover:to-blue-500/30 border border-white/10 hover:border-white/30 text-white transition-all duration-200 group"><span className="font-medium bg-clip-text text-transparent bg-gradient-to-r from-pink-300 via-purple-300 to-blue-300">Orijinal Renkler</span><span className="text-xs text-gray-500 block mt-1 group-hover:text-gray-400">Görselin kendi renkleri kullanılır</span></button>
-            </div>
-            <button onClick={() => { setShowImageModal(false); setPendingImage(null); onInteractionEnd(); }} className="mt-6 text-gray-500 hover:text-white text-xs transition-colors">İptal Et</button>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: Ses Seçimi */}
-      {showAudioModal && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-300" onPointerDown={stopProp}>
-          <div className="bg-[#111] border border-white/10 p-6 rounded-2xl shadow-2xl max-w-sm w-full text-center">
-            <h3 className="text-white text-lg font-light mb-4">Ses Kaynağı Seçimi</h3>
-            <p className="text-gray-400 text-sm mb-6">Ekolayzır efektini hangi kaynakla tetiklemek istersiniz?</p>
-            <div className="flex flex-col gap-3">
-              <button onClick={() => audioInputRef.current?.click()} className="w-full py-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/30 text-white transition-all duration-200 group">
-                <span className="font-medium">Müzik Dosyası Yükle</span>
-                <span className="text-xs text-gray-500 block mt-1 group-hover:text-gray-400">Önerilen: Max 15 sn (mp3, wav)</span>
-              </button>
-              <button onClick={() => { onAudioChange('mic', null); setShowAudioModal(false); onInteractionEnd(); }} className="w-full py-3 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/30 text-white transition-all duration-200 group">
-                <span className="font-medium">Mikrofon Kullan</span>
-                <span className="text-xs text-gray-500 block mt-1 group-hover:text-gray-400">Ortam sesiyle anlık tepki</span>
-              </button>
-            </div>
-            <button onClick={() => { setShowAudioModal(false); onInteractionEnd(); }} className="mt-6 text-gray-500 hover:text-white text-xs transition-colors">İptal Et</button>
-          </div>
-        </div>
-      )}
-      
-      {/* Orta Alt: Kontroller */}
       <div className="absolute bottom-10 left-0 w-full flex justify-center items-center pointer-events-none z-50 px-4">
-        <div className="pointer-events-auto w-full max-w-lg relative group flex gap-2 items-center" onPointerDown={stopProp}>
-          
-          {/* Renk Paleti Popup */}
+        <div className={`pointer-events-auto w-full max-w-lg relative group flex gap-2 items-center transition-transform duration-500 ${hideBottomClass}`} onPointerDown={stopProp}>
           {isPaletteOpen && (
             <div className="absolute bottom-full right-0 translate-x-2 mb-2 bg-black/80 backdrop-blur-xl border border-white/20 p-2 rounded-xl shadow-2xl animate-in fade-in zoom-in duration-200 origin-bottom-right" onMouseEnter={() => onInteractionStart()} onMouseLeave={() => { if(!isDrawing) onColorChange(savedColor); onInteractionEnd(); }}>
               <div className="text-white/60 text-[10px] mb-1 font-mono text-center">Renk Seçici</div>
@@ -623,148 +579,21 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
               </div>
             </div>
           )}
-
-          {/* Gizli Inputlar */}
-          <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleFileSelect} />
-          <input type="file" accept="audio/*" className="hidden" ref={audioInputRef} onChange={handleAudioSelect} />
-
-          {/* Müzik Ekle Butonu */}
-          {!isDrawing && (
-          <button
-            onClick={() => { setShowAudioModal(true); onInteractionStart(); }}
-            className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border ${
-              audioMode !== 'none' 
-              ? 'bg-green-500/20 text-green-300 border-green-500/50' 
-              : isLightMode 
-                  ? 'bg-black/5 hover:bg-black/10 border-black/20 hover:border-black/50 text-black/80' 
-                  : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/50 text-white'
-            }`}
-            title="Müzik/Ses Ekle"
-            onMouseEnter={onInteractionStart}
-            onMouseLeave={onInteractionEnd}
-          >
-             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
-          </button>
-          )}
-
-          {/* Resim Ekle Butonu */}
-          {!isDrawing && (
-          <button 
-            onClick={() => fileInputRef.current?.click()} 
-            className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border ${
-               isLightMode 
-               ? 'bg-black/5 hover:bg-black/10 border-black/20 hover:border-black/50 text-black/80' 
-               : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/50 text-white'
-            }`}
-            title="Resim Yükle" 
-            onMouseEnter={onInteractionStart} 
-            onMouseLeave={onInteractionEnd}
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-          </button>
-          )}
-
-          {/* Kalem Butonu (Çizim Modu) */}
-          <button 
-             onClick={isDrawing ? cancelDrawing : onDrawingStart}
-             className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border ${
-                 isDrawing 
-                 ? 'bg-red-500/20 text-red-200 border-red-500/50 hover:bg-red-500/40' 
-                 : isLightMode 
-                    ? 'bg-black/5 hover:bg-black/10 border-black/20 hover:border-black/50 text-black/80' 
-                    : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/50 text-white'
-             }`}
-             title={isDrawing ? "Çizimi İptal Et" : "Çizim Yap"}
-             onMouseEnter={onInteractionStart} 
-             onMouseLeave={onInteractionEnd}
-          >
-            {isDrawing ? (
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-            ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"></path><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path><path d="M2 2l7.586 7.586"></path><circle cx="11" cy="11" r="2"></circle></svg>
-            )}
-          </button>
-
-          {/* Text Input Yerine Bilgi / Placeholder */}
-          {!isDrawing ? (
-             <input 
-               type="text" 
-               value={inputValue} 
-               onChange={(e) => setInputValue(e.target.value)} 
-               onKeyDown={handleKeyDown} 
-               onFocus={() => onInteractionStart()} 
-               onBlur={() => onInteractionEnd()} 
-               placeholder="Metin yazın (Türkçe destekli)..." 
-               className={`flex-1 backdrop-blur-md border rounded-full px-6 py-4 outline-none transition-all duration-300 shadow-lg text-center font-light tracking-wide text-lg ${
-                 isLightMode 
-                 ? 'bg-black/5 border-black/10 text-black placeholder-gray-500 focus:bg-black/10 focus:border-black/30' 
-                 : 'bg-white/10 border-white/20 text-white placeholder-gray-400 focus:bg-white/20 focus:border-white/50'
-               }`} 
-             />
-          ) : (
-             <div className="flex-1 bg-white/5 border border-white/10 rounded-full px-6 py-4 text-center text-white/50 font-light tracking-wide text-lg select-none">
-                3D Tuval Aktif
-             </div>
-          )}
-
-          {/* Çizim Onay Butonu */}
-          {isDrawing && (
-            <button onClick={onDrawingConfirm} className="w-16 flex-shrink-0 bg-green-500/20 hover:bg-green-500/30 border border-green-500/50 hover:border-green-400 text-green-100 rounded-full px-2 py-4 transition-all duration-300 shadow-lg text-center font-light tracking-wide flex items-center justify-center gap-2 group" title="Çizimi Dönüştür">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="group-hover:scale-110 transition-transform"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            </button>
-          )}
           
+          {!isDrawing && (<button onClick={() => { setShowAudioModal(true); onInteractionStart(); }} className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border ${audioMode !== 'none' ? 'bg-green-500/20 text-green-300 border-green-500/50' : isLightMode ? 'bg-black/5 hover:bg-black/10 border-black/20 hover:border-black/50 text-black/80' : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/50 text-white'}`} title="Müzik/Ses Ekle" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg></button>)}
+          {!isDrawing && (<button onClick={() => fileInputRef.current?.click()} className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border ${isLightMode ? 'bg-black/5 hover:bg-black/10 border-black/20 hover:border-black/50 text-black/80' : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/50 text-white'}`} title="Resim Yükle" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></button>)}
+          <button onClick={isDrawing ? cancelDrawing : onDrawingStart} className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border ${isDrawing ? 'bg-red-500/20 text-red-200 border-red-500/50 hover:bg-red-500/40' : isLightMode ? 'bg-black/5 hover:bg-black/10 border-black/20 hover:border-black/50 text-black/80' : 'bg-white/10 hover:bg-white/20 border-white/20 hover:border-white/50 text-white'}`} title={isDrawing ? "Çizimi İptal Et" : "Çizim Yap"} onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>{isDrawing ? (<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>) : (<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"></path><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path><path d="M2 2l7.586 7.586"></path><circle cx="11" cy="11" r="2"></circle></svg>)}</button>
+          {!isDrawing ? (<input type="text" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={handleKeyDown} onFocus={() => onInteractionStart()} onBlur={() => onInteractionEnd()} placeholder="Metin yazın (Türkçe destekli)..." className={`flex-1 backdrop-blur-md border rounded-full px-6 py-4 outline-none transition-all duration-300 shadow-lg text-center font-light tracking-wide text-lg ${isLightMode ? 'bg-black/5 border-black/10 text-black placeholder-gray-500 focus:bg-black/10 focus:border-black/30' : 'bg-white/10 border-white/20 text-white placeholder-gray-400 focus:bg-white/20 focus:border-white/50'}`} />) : (<div className="flex-1 bg-white/5 border border-white/10 rounded-full px-6 py-4 text-center text-white/50 font-light tracking-wide text-lg select-none">3D Tuval Aktif</div>)}
+          {isDrawing && (<button onClick={onDrawingConfirm} className="w-16 flex-shrink-0 bg-green-500/20 hover:bg-green-500/30 border border-green-500/50 hover:border-green-400 text-green-100 rounded-full px-2 py-4 transition-all duration-300 shadow-lg text-center font-light tracking-wide flex items-center justify-center gap-2 group" title="Çizimi Dönüştür"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="group-hover:scale-110 transition-transform"><polyline points="20 6 9 17 4 12"></polyline></svg></button>)}
           <div className="flex items-center gap-2">
-            {/* Orijinal Renk Reset (Sadece Resimde) */}
-            {hasImage && !isOriginalColors && !isDrawing && (
-              <button onClick={onResetColors} className="w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center bg-gradient-to-tr from-gray-800 to-gray-700 hover:from-gray-700 hover:to-gray-600 transition-all duration-300 border border-white/20 hover:border-white/50 text-white/80 hover:text-white animate-in fade-in zoom-in" title="Orijinal Renklere Dön" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
-              </button>
-            )}
-
-            {/* Renk Paleti */}
-            <button 
-                onClick={() => setIsPaletteOpen(!isPaletteOpen)} 
-                className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border-2 z-20 ${
-                    isLightMode 
-                    ? 'bg-black/5 hover:bg-black/20 border-black/20 hover:border-black shadow-[0_0_15px_rgba(0,0,0,0.1)] hover:shadow-[0_0_20px_rgba(0,0,0,0.3)]' 
-                    : 'bg-white/5 hover:bg-white/20 border-white/20 hover:border-white shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:shadow-[0_0_20px_rgba(255,255,255,0.3)]'
-                }`}
-                title="Renk Paletini Aç" 
-                onMouseEnter={onInteractionStart} 
-                onMouseLeave={onInteractionEnd}
-            >
-                <div className={`w-6 h-6 rounded-full shadow-sm ${isLightMode ? 'border border-black/20' : 'border border-white/50'}`} style={{ backgroundColor: currentColor }} />
-            </button>
-            
-             {/* GLOBAL RESET / CANVAS CLEAR BUTTON */}
-             <button
-                onClick={isDrawing ? onClearCanvas : onResetAll}
-                className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border ${
-                    isDrawing 
-                    ? 'bg-orange-500/10 hover:bg-orange-500/30 hover:border-orange-400 border-white/20 text-white/70 hover:text-white' 
-                    : isLightMode 
-                        ? 'bg-red-500/10 hover:bg-red-500/30 hover:border-red-400 border-black/20 text-black/70 hover:text-black' 
-                        : 'bg-red-500/10 hover:bg-red-500/30 hover:border-red-400 border-white/20 text-white/70 hover:text-white'
-                }`}
-                title={isDrawing ? "Tuvali Temizle" : "Her Şeyi Sıfırla"}
-                onMouseEnter={onInteractionStart}
-                onMouseLeave={onInteractionEnd}
-            >
-                {isDrawing ? (
-                    // Çöp Kutusu İkonu (Drawing Modu için)
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                ) : (
-                    // Reset İkonu (Normal Mod için)
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 16h5v5"></path></svg>
-                )}
-            </button>
+            {hasImage && !isOriginalColors && !isDrawing && (<button onClick={onResetColors} className="w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center bg-gradient-to-tr from-gray-800 to-gray-700 hover:from-gray-700 hover:to-gray-600 transition-all duration-300 border border-white/20 hover:border-white/50 text-white/80 hover:text-white animate-in fade-in zoom-in" title="Orijinal Renklere Dön" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg></button>)}
+            <button onClick={() => setIsPaletteOpen(!isPaletteOpen)} className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border-2 z-20 ${isLightMode ? 'bg-black/5 hover:bg-black/20 border-black/20 hover:border-black shadow-[0_0_15px_rgba(0,0,0,0.1)] hover:shadow-[0_0_20px_rgba(0,0,0,0.3)]' : 'bg-white/5 hover:bg-white/20 border-white/20 hover:border-white shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:shadow-[0_0_20px_rgba(255,255,255,0.3)]'}`} title="Renk Paletini Aç" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}><div className={`w-6 h-6 rounded-full shadow-sm ${isLightMode ? 'border border-black/20' : 'border border-white/50'}`} style={{ backgroundColor: currentColor }} /></button>
+             <button onClick={isDrawing ? onClearCanvas : onResetAll} className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border ${isDrawing ? 'bg-orange-500/10 hover:bg-orange-500/30 hover:border-orange-400 border-white/20 text-white/70 hover:text-white' : isLightMode ? 'bg-red-500/10 hover:bg-red-500/30 hover:border-red-400 border-black/20 text-black/70 hover:text-black' : 'bg-red-500/10 hover:bg-red-500/30 hover:border-red-400 border-white/20 text-white/70 hover:text-white'}`} title={isDrawing ? "Tuvali Temizle" : "Her Şeyi Sıfırla"} onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>{isDrawing ? (<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>) : (<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 16h5v5"></path></svg>)}</button>
           </div>
         </div>
-        {!isDrawing && (
-            <div className={`absolute -bottom-6 text-center text-[10px] font-mono opacity-50 ${isLightMode ? 'text-black' : 'text-gray-500'}`}>Küre moduna dönmek için boş Enter</div>
-        )}
+        {!isDrawing && (<div className={`absolute -bottom-6 text-center text-[10px] font-mono opacity-50 ${isLightMode ? 'text-black' : 'text-gray-500'}`}>Küre moduna dönmek için boş Enter</div>)}
       </div>
+
     </>
   );
 };

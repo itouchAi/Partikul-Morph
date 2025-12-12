@@ -3,9 +3,7 @@ import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { MagicParticles } from './MagicParticles';
 import * as THREE from 'three';
-
-type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury' | 'disco';
-type AudioMode = 'none' | 'file' | 'mic';
+import { PresetType, AudioMode, ShapeType } from '../types';
 
 interface ExperienceProps {
   text: string;
@@ -18,7 +16,6 @@ interface ExperienceProps {
   repulsionStrength: number;
   repulsionRadius: number;
   particleCount: number;
-  // Yeni Props
   particleSize: number;
   modelDensity: number;
   
@@ -30,9 +27,10 @@ interface ExperienceProps {
   getDrawingDataRef: React.MutableRefObject<{ getXY: () => string, getYZ: () => string } | null>;
   canvasRotation: [number, number, number];
   clearCanvasTrigger?: number;
+  currentShape?: ShapeType;
+  cameraResetTrigger?: number; 
 }
 
-// 3D Çizim Düzlemi Bileşeni (Çift Yüzey)
 const DrawingPlane3D: React.FC<{
   isDrawing: boolean;
   color: string;
@@ -42,12 +40,10 @@ const DrawingPlane3D: React.FC<{
   clearTrigger?: number;
 }> = ({ isDrawing, color, brushSize, getDataRef, rotation, clearTrigger }) => {
   
-  // XY Plane Refs
   const textureXYRef = useRef<THREE.CanvasTexture>(null);
   const contextXYRef = useRef<CanvasRenderingContext2D | null>(null);
   const canvasXYRef = useRef<HTMLCanvasElement | null>(null);
 
-  // YZ Plane Refs (Yan Düzlem)
   const textureYZRef = useRef<THREE.CanvasTexture>(null);
   const contextYZRef = useRef<CanvasRenderingContext2D | null>(null);
   const canvasYZRef = useRef<HTMLCanvasElement | null>(null);
@@ -56,7 +52,6 @@ const DrawingPlane3D: React.FC<{
   const isDrawingAction = useRef(false);
   const activePlane = useRef<'XY' | 'YZ'>('XY');
 
-  // Canvas Init
   useEffect(() => {
     const initCanvas = () => {
         const c = document.createElement('canvas');
@@ -84,7 +79,6 @@ const DrawingPlane3D: React.FC<{
     };
   }, []);
 
-  // Tuval Temizleme Tetikleyicisi
   useEffect(() => {
     if (contextXYRef.current) {
         contextXYRef.current.clearRect(0, 0, 1024, 1024);
@@ -96,7 +90,6 @@ const DrawingPlane3D: React.FC<{
     if (textureYZRef.current) textureYZRef.current.needsUpdate = true;
   }, [clearTrigger]);
 
-  // Brush Update
   useEffect(() => {
     if (contextXYRef.current) {
         contextXYRef.current.strokeStyle = color;
@@ -163,7 +156,6 @@ const DrawingPlane3D: React.FC<{
 
   return (
     <group rotation={rotation}>
-        {/* XY Plane (Front) */}
         <mesh 
             position={[0, 0, 0]}
             onPointerDown={(e) => handlePointerDown(e, 'XY')}
@@ -189,10 +181,8 @@ const DrawingPlane3D: React.FC<{
             </lineSegments>
         </mesh>
         
-        {/* XY Grid Helper */}
         <gridHelper args={[15, 15, 0x888888, 0x222222]} rotation={[Math.PI/2, 0, 0]} position={[0, 0, 0.01]} />
 
-        {/* YZ Plane (Side) - Rotated 90 deg Y */}
         <mesh 
             rotation={[0, Math.PI / 2, 0]}
             onPointerDown={(e) => handlePointerDown(e, 'YZ')}
@@ -218,10 +208,7 @@ const DrawingPlane3D: React.FC<{
             </lineSegments>
         </mesh>
         
-        {/* YZ Grid Helper - Blue Tint */}
         <gridHelper args={[15, 15, 0x4444ff, 0x111144]} rotation={[0, 0, Math.PI/2]} position={[0.01, 0, 0]} />
-
-        <axesHelper args={[5]} />
     </group>
   );
 };
@@ -236,7 +223,7 @@ export const Experience: React.FC<ExperienceProps> = ({
   depthIntensity,
   repulsionStrength,
   repulsionRadius,
-  particleCount,
+  particleCount, 
   particleSize,
   modelDensity,
   activePreset,
@@ -246,18 +233,20 @@ export const Experience: React.FC<ExperienceProps> = ({
   brushSize,
   getDrawingDataRef,
   canvasRotation,
-  clearCanvasTrigger
+  clearCanvasTrigger,
+  currentShape = 'sphere',
+  cameraResetTrigger = 0
 }) => {
   const controlsRef = useRef<any>(null);
+  const objectGroupRef = useRef<THREE.Group>(null);
   const previousPositions = useRef<Float32Array | null>(null);
 
   useEffect(() => {
-    if (controlsRef.current) {
-        if (!isDrawing && (text || imageXY || imageYZ)) {
-             controlsRef.current.reset();
-        }
-    }
-  }, [text, imageXY, imageYZ]); 
+      // Resetlendiğinde kamerayı sıfırla
+      if (controlsRef.current && cameraResetTrigger > 0) {
+          controlsRef.current.reset();
+      }
+  }, [cameraResetTrigger]);
 
   return (
     <Canvas
@@ -271,54 +260,58 @@ export const Experience: React.FC<ExperienceProps> = ({
         makeDefault
         domElement={document.body}
         ref={controlsRef}
-        enablePan={false} 
+        enablePan={false}
         enableZoom={true}
         enableDamping 
         dampingFactor={0.05} 
         minDistance={2} 
-        maxDistance={50}
+        maxDistance={100}
         rotateSpeed={0.5}
         mouseButtons={{
-          LEFT: THREE.MOUSE.ROTATE, 
+          LEFT: undefined, 
           MIDDLE: THREE.MOUSE.DOLLY,
           RIGHT: THREE.MOUSE.ROTATE 
         }}
       />
-
+      
       <ambientLight intensity={0.5} />
       <pointLight position={[10, 10, 10]} intensity={1} />
-
-      <DrawingPlane3D 
-        isDrawing={isDrawing} 
-        color={particleColor} 
-        brushSize={brushSize}
-        getDataRef={getDrawingDataRef}
-        rotation={canvasRotation}
-        clearTrigger={clearCanvasTrigger}
-      />
-
-      {!isDrawing && (
-          <MagicParticles 
-            text={text} 
-            imageXY={imageXY}
-            imageYZ={imageYZ}
-            useImageColors={useImageColors}
+      
+      {/* Merkez Grup */}
+      <group ref={objectGroupRef}>
+          <DrawingPlane3D 
+            isDrawing={isDrawing} 
             color={particleColor} 
-            disableMouseRepulsion={disableInteraction} 
-            depthIntensity={depthIntensity}
-            repulsionStrength={repulsionStrength}
-            repulsionRadius={repulsionRadius}
-            particleCount={particleCount}
-            particleSize={particleSize}
-            modelDensity={modelDensity}
-            previousPositions={previousPositions}
-            activePreset={activePreset}
-            audioMode={audioMode}
-            audioUrl={audioUrl}
-            isDrawing={false}
-            canvasRotation={canvasRotation}
+            brushSize={brushSize}
+            getDataRef={getDrawingDataRef}
+            rotation={canvasRotation}
+            clearTrigger={clearCanvasTrigger}
           />
-      )}
+
+          {!isDrawing && (
+              <MagicParticles 
+                text={text} 
+                imageXY={imageXY}
+                imageYZ={imageYZ}
+                useImageColors={useImageColors}
+                color={particleColor} 
+                disableMouseRepulsion={disableInteraction} 
+                depthIntensity={depthIntensity}
+                repulsionStrength={repulsionStrength}
+                repulsionRadius={repulsionRadius}
+                particleCount={particleCount}
+                particleSize={particleSize}
+                modelDensity={modelDensity}
+                previousPositions={previousPositions}
+                activePreset={activePreset}
+                audioMode={audioMode}
+                audioUrl={audioUrl}
+                isDrawing={false}
+                canvasRotation={canvasRotation}
+                currentShape={currentShape}
+              />
+          )}
+      </group>
     </Canvas>
   );
 };
