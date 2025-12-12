@@ -88,7 +88,9 @@ interface UIOverlayProps {
   onBgImageStyleChange?: (style: BgImageStyle) => void;
   bgImageStyle?: BgImageStyle;
   onRemoveBgImage?: (img: string) => void;
-  onBgPositionChange?: (pos: string, zoom: number) => void;
+  onBgPositionChange?: (pos: string, zoom: number) => void; // Eski
+  onBgTransformChange?: (x: number, y: number, scale: number) => void; // Yeni
+  onResetDeck?: (deleteImages: boolean, resetSize: boolean) => void;
 }
 
 export const UIOverlay: React.FC<UIOverlayProps> = ({ 
@@ -150,7 +152,9 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   onBgImageStyleChange,
   bgImageStyle = 'cover',
   onRemoveBgImage,
-  onBgPositionChange
+  onBgPositionChange,
+  onBgTransformChange,
+  onResetDeck
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
@@ -183,6 +187,11 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   // Expanded Deck Mode (Right Click)
   const [isDeckExpanded, setIsDeckExpanded] = useState(false);
 
+  // Reset Menu State
+  const [showResetMenu, setShowResetMenu] = useState(false);
+  const [resetDeleteAll, setResetDeleteAll] = useState(false);
+  const [resetResetSize, setResetResetSize] = useState(true);
+
   // Cropper Modal State
   const [showCropper, setShowCropper] = useState(false);
   const [cropImage, setCropImage] = useState<string | null>(null);
@@ -202,7 +211,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   const [pendingImage, setPendingImage] = useState<string | null>(null);
 
   const isLightMode = bgMode === 'light';
-  const isAnyMenuOpen = isSettingsOpen || isThemeMenuOpen || isShapeMenuOpen || isBgPaletteOpen || isPaletteOpen || showMusicSettings || deckShowSettings;
+  const isAnyMenuOpen = isSettingsOpen || isThemeMenuOpen || isShapeMenuOpen || isBgPaletteOpen || isPaletteOpen || showMusicSettings || deckShowSettings || showResetMenu;
 
   const closeAllMenus = () => {
     setIsSettingsOpen(false);
@@ -212,6 +221,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
     setIsPaletteOpen(false);
     setShowMusicSettings(false);
     setDeckShowSettings(false);
+    setShowResetMenu(false);
     
     // Expand modunu kapat
     if (isDeckExpanded) setIsDeckExpanded(false);
@@ -382,7 +392,17 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
   const handleCardClick = (e: React.MouseEvent, img: string) => {
       e.stopPropagation();
+      
+      // 1. Resmi Arka Plana Ayarla
       if (onBgImageSelect) onBgImageSelect(img);
+      
+      // 2. Deck İndeksini Tıklanan Resme Göre Güncelle (Thubmnail Sync)
+      const clickedIndex = bgImages.indexOf(img);
+      if (clickedIndex !== -1) {
+          setDeckIndex(clickedIndex);
+      }
+
+      // 3. Menüyü Kapat
       if (isDeckExpanded) setIsDeckExpanded(false);
   };
 
@@ -424,14 +444,14 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
   const currentActiveImage = getDeckImage(0);
 
-  // --- CROPPER LOGIC ---
+  // --- CROPPER LOGIC (EXACT PIXEL MATCH) ---
   const openCropper = (e?: React.MouseEvent) => {
       if(e) e.stopPropagation();
       if(currentActiveImage) {
           setCropImage(currentActiveImage);
           setShowCropper(true);
           setDeckShowSettings(false);
-          // Reset cropper state
+          // Reset cropper state to neutral
           setCropOffset({x: 0, y: 0});
           setCropScale(1);
       }
@@ -448,6 +468,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
       const dx = e.clientX - dragStart.x;
       const dy = e.clientY - dragStart.y;
       
+      // Update local offset (pixels)
       setCropOffset({
           x: startOffset.x + dx,
           y: startOffset.y + dy
@@ -461,16 +482,29 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   const handleCropWheel = (e: React.WheelEvent) => {
       e.stopPropagation();
       const delta = e.deltaY > 0 ? -0.1 : 0.1;
-      setCropScale(prev => Math.max(0.5, Math.min(5, prev + delta)));
+      setCropScale(prev => Math.max(0.1, Math.min(5, prev + delta)));
   }
 
   const confirmCrop = () => {
-      if(onBgPositionChange) {
-          const xPos = `calc(50% + ${cropOffset.x}px)`;
-          const yPos = `calc(50% + ${cropOffset.y}px)`;
-          onBgPositionChange(`${xPos} ${yPos}`, cropScale);
+      if(onBgTransformChange) {
+          // Pass absolute offset and scale directly to App for transform
+          onBgTransformChange(cropOffset.x, cropOffset.y, cropScale);
       }
       setShowCropper(false);
+  };
+
+  // --- RESET MENU LOGIC ---
+  const openResetMenu = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setShowResetMenu(true);
+      setDeckShowSettings(false); // Close other menu
+  };
+
+  const handleResetConfirm = () => {
+      if (onResetDeck) {
+          onResetDeck(resetDeleteAll, resetResetSize);
+      }
+      setShowResetMenu(false);
   };
 
   return (
@@ -483,13 +517,19 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         @keyframes mercury-blob { 0% { transform: scale(1); border-color: #aaa; background: rgba(200,200,200,0.2); } 50% { transform: scale(1.1); border-color: #fff; background: rgba(255,255,255,0.4); } 100% { transform: scale(1); border-color: #aaa; background: rgba(200,200,200,0.2); } }
         @keyframes disco-spin { 0% { border-color: #f00; box-shadow: 0 0 10px #f00; } 20% { border-color: #ff0; box-shadow: 0 0 10px #ff0; } 40% { border-color: #0f0; box-shadow: 0 0 10px #0f0; } 60% { border-color: #0ff; box-shadow: 0 0 10px #0ff; } 80% { border-color: #00f; box-shadow: 0 0 10px #00f; } 100% { border-color: #f0f; box-shadow: 0 0 10px #f0f; } }
 
+        /* Preset Button Active States - Added !important to enforce override */
+        .preset-btn.active.preset-electric { animation: electric-pulse 1.5s infinite !important; background: rgba(0, 255, 255, 0.1) !important; }
+        .preset-btn.active.preset-fire { animation: fire-burn 1.5s infinite !important; background: rgba(255, 69, 0, 0.1) !important; }
+        .preset-btn.active.preset-water { animation: water-flow 3s infinite !important; background: rgba(0, 100, 255, 0.1) !important; }
+        .preset-btn.active.preset-mercury { animation: mercury-blob 4s infinite !important; }
+        .preset-btn.active.preset-disco { animation: disco-spin 2s linear infinite !important; }
+
         /* Icon Internal Animations */
         @keyframes icon-wiggle { 0%, 100% { transform: rotate(0deg); } 25% { transform: rotate(-10deg); } 75% { transform: rotate(10deg); } }
         @keyframes icon-bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
         @keyframes icon-spin-hover { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes icon-pulse-hover { 0% { transform: scale(1); } 50% { transform: scale(1.15); } 100% { transform: scale(1); } }
         
-        /* Grup hover yerine doğrudan butona hover olunca çalışsın */
         button:hover .icon-animate-wiggle { animation: icon-wiggle 0.3s ease-in-out; }
         button:hover .icon-animate-bounce { animation: icon-bounce 0.5s ease-in-out infinite; }
         button:hover .icon-animate-spin { animation: icon-spin-hover 1s linear infinite; }
@@ -506,14 +546,14 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
             51% { z-index: 0; }
             100% { transform: rotate(0deg) translate(0,0) scale(0.9); z-index: 0; opacity: 0.5; }
         }
-        @keyframes deck-throw-prev {
-            0% { transform: rotate(0deg) translate(0,0) scale(0.9); z-index: 0; opacity: 0.5; }
-            50% { transform: rotate(-30deg) translateX(-60px) translateY(-20px); z-index: 20; opacity: 0.8; }
-            100% { transform: rotate(0deg) translateY(0); z-index: 20; opacity: 1; }
+        @keyframes deck-arrive-from-back {
+            0% { transform: translateY(15px) scale(0.85); z-index: 0; opacity: 0; }
+            50% { opacity: 1; z-index: 20; }
+            100% { transform: translateY(0) scale(1); z-index: 20; opacity: 1; }
         }
 
         .anim-throw-next { animation: deck-throw-next 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; transform-origin: bottom left; }
-        .anim-throw-prev { animation: deck-throw-prev 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; transform-origin: bottom left; }
+        .anim-arrive-from-back { animation: deck-arrive-from-back 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; transform-origin: bottom left; }
 
         .deck-card {
             transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -557,7 +597,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
       <input type="file" accept="audio/*" ref={audioInputRef} onChange={handleAudioSelect} className="hidden" />
       <input type="file" accept="image/*" multiple ref={bgImageInputRef} onChange={handleBgImagesSelect} className="hidden" />
 
-      {/* --- MUSIC PLAYER --- */}
+      {/* ... (Music Player Code Unchanged) ... */}
       {showMusicPlayer && (
           <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-40 transition-all duration-700 ease-in-out ${musicPlayerClass}`}>
              <div 
@@ -623,7 +663,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                     onClick={(e) => { e.stopPropagation(); setShowMusicSettings(!showMusicSettings); }}
                     className={`absolute -right-3 -top-3 w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 shadow-md z-30 ${isLightMode ? 'bg-white text-black border border-black/10' : 'bg-black text-white border border-white/20'}`}
                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 0-2.83 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                  </button>
 
                  {showMusicSettings && (
@@ -651,7 +691,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           </div>
       )}
 
-      {/* ... (Modals Omitted for Brevity - Unchanged) ... */}
+      {/* ... (Modals Omitted) ... */}
       {showImageModal && pendingImage && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
           <div className="bg-[#111] border border-white/20 p-6 rounded-2xl max-w-sm w-full shadow-2xl animate-in zoom-in duration-300">
@@ -660,18 +700,8 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
               <img src={pendingImage} alt="Preview" className="max-w-full max-h-full object-contain" />
             </div>
             <div className="flex gap-2 mb-6">
-                <button 
-                  onClick={() => setUseOriginalImageColors(true)} 
-                  className={`flex-1 py-2 text-xs rounded border transition-all flex flex-col items-center justify-center gap-1 ${useOriginalImageColors ? 'bg-blue-600/30 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}
-                >
-                  <span className="font-bold">ORİJİNAL RENKLER</span>
-                </button>
-                <button 
-                  onClick={() => setUseOriginalImageColors(false)} 
-                  className={`flex-1 py-2 text-xs rounded border transition-all flex flex-col items-center justify-center gap-1 ${!useOriginalImageColors ? 'bg-blue-600/30 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}
-                >
-                  <span className="font-bold">TEMA RENGİ</span>
-                </button>
+                <button onClick={() => setUseOriginalImageColors(true)} className={`flex-1 py-2 text-xs rounded border transition-all flex flex-col items-center justify-center gap-1 ${useOriginalImageColors ? 'bg-blue-600/30 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}><span className="font-bold">ORİJİNAL RENKLER</span></button>
+                <button onClick={() => setUseOriginalImageColors(false)} className={`flex-1 py-2 text-xs rounded border transition-all flex flex-col items-center justify-center gap-1 ${!useOriginalImageColors ? 'bg-blue-600/30 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}><span className="font-bold">TEMA RENGİ</span></button>
             </div>
             <div className="flex gap-3">
               <button onClick={() => { setShowImageModal(false); setPendingImage(null); onInteractionEnd(); }} className="flex-1 py-3 rounded-lg bg-white/10 text-white/70 hover:bg-white/20 hover:text-white transition-colors font-medium">İptal</button>
@@ -696,7 +726,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                       const imgIndex = (deckIndex + i) % bgImages.length;
                       const img = bgImages[imgIndex];
                       
-                      // COLLAPSED STATE STYLES - PHYSICAL DECK LOOK
+                      // COLLAPSED STATE STYLES
                       let collapsedBottom = 0;
                       let collapsedScale = 1;
                       let collapsedZ = 20 - i;
@@ -709,7 +739,8 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                               collapsedZ = 20;
                               collapsedOpacity = 1;
                               if (animDirection === 'next') animClass = 'anim-throw-next';
-                              if (animDirection === 'prev') animClass = 'anim-throw-prev';
+                              // Yukarı scroll (Prev) için: Yeni gelen (Index 0) kart arkadan/alttan öne gelir
+                              if (animDirection === 'prev') animClass = 'anim-arrive-from-back'; 
                           } else if (i === 1) { // Next (Top peeking)
                               collapsedZ = 15;
                               collapsedScale = 0.95;
@@ -717,7 +748,6 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                               collapsedTransform = `translateY(-4px) translateX(2px) rotate(2deg) scale(0.95)`;
                               collapsedOpacity = 0.9;
                           } else if (i === bgImages.length - 1) { 
-                              // Önceki kart animasyonunda görünecek placeholder
                               collapsedOpacity = 0;
                           } else {
                               collapsedOpacity = 0;
@@ -762,13 +792,23 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                                 if (isDeckExpanded && onBgImageSelect) onBgImageSelect(img);
                             }}
                           >
-                             {/* Config Button (Only visible on top card when collapsed) */}
+                             {/* Config Button */}
                              {i === 0 && !isDeckExpanded && (
                                 <button 
-                                    onClick={(e) => { e.stopPropagation(); setDeckShowSettings(!deckShowSettings); }}
+                                    onClick={(e) => { e.stopPropagation(); setDeckShowSettings(!deckShowSettings); setShowResetMenu(false); }}
                                     className="absolute top-1 right-1 w-4 h-4 bg-black/60 rounded-full flex items-center justify-center text-white/80 hover:text-white hover:bg-black/80 opacity-0 group-hover:opacity-100 transition-all duration-200 backdrop-blur-sm"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                                </button>
+                             )}
+                             
+                             {/* Reset (Trash) Button - Added next to Config */}
+                             {i === 0 && !isDeckExpanded && (
+                                <button 
+                                    onClick={openResetMenu}
+                                    className="absolute top-1 left-1 w-4 h-4 bg-red-600/80 rounded-full flex items-center justify-center text-white hover:bg-red-500 opacity-0 group-hover:opacity-100 transition-all duration-200 backdrop-blur-sm"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                                 </button>
                              )}
 
@@ -810,6 +850,33 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                       </div>
                   </div>
               )}
+
+              {/* Reset Menu Popup */}
+              {showResetMenu && !isDeckExpanded && (
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-40 bg-[#111]/95 backdrop-blur-xl border border-white/20 rounded-xl p-3 shadow-[0_10px_30px_rgba(0,0,0,0.5)] animate-config-pop origin-bottom z-[60]" onClick={stopProp}>
+                      <h4 className="text-[10px] font-mono uppercase text-red-400 mb-2 tracking-widest text-center border-b border-white/10 pb-1">Sıfırlama</h4>
+                      <div className="flex flex-col gap-2 mb-3">
+                          <label className="flex items-center gap-2 cursor-pointer group">
+                              <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${resetDeleteAll ? 'bg-red-600 border-red-500' : 'border-white/30 group-hover:border-white/50'}`}>
+                                  {resetDeleteAll && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4"><polyline points="20 6 9 17 4 12"></polyline></svg>}
+                              </div>
+                              <input type="checkbox" className="hidden" checked={resetDeleteAll} onChange={() => setResetDeleteAll(!resetDeleteAll)} />
+                              <span className="text-[10px] text-gray-300">Tümünü Sil</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer group">
+                              <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${resetResetSize ? 'bg-blue-600 border-blue-500' : 'border-white/30 group-hover:border-white/50'}`}>
+                                  {resetResetSize && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="4"><polyline points="20 6 9 17 4 12"></polyline></svg>}
+                              </div>
+                              <input type="checkbox" className="hidden" checked={resetResetSize} onChange={() => setResetResetSize(!resetResetSize)} />
+                              <span className="text-[10px] text-gray-300">Boyutu Sıfırla</span>
+                          </label>
+                      </div>
+                      <div className="flex gap-2">
+                          <button onClick={() => setShowResetMenu(false)} className="flex-1 py-1 rounded bg-white/10 text-[10px] text-gray-300 hover:bg-white/20">İptal</button>
+                          <button onClick={handleResetConfirm} className="flex-1 py-1 rounded bg-red-600 text-[10px] text-white hover:bg-red-500 font-bold">Onayla</button>
+                      </div>
+                  </div>
+              )}
           </div>
       )}
 
@@ -831,14 +898,14 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                   onWheel={handleCropWheel}
                   style={{ cursor: isDraggingCrop ? 'grabbing' : 'grab' }}
               >
-                  {/* The Image (Background) */}
+                  {/* The Image (Background) - Using transform match App.tsx */}
                   <img 
                     src={cropImage} 
                     alt="Target"
                     className="absolute max-w-none transition-transform duration-75"
                     style={{
                         transform: `translate(${cropOffset.x}px, ${cropOffset.y}px) scale(${cropScale})`,
-                        transformOrigin: 'center'
+                        transformOrigin: 'center center' // Sabit merkez
                     }}
                     draggable={false}
                   />
@@ -873,6 +940,8 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           </div>
       )}
 
+      {/* ... (Ses Modal & Menu Kontrolleri Aynı Kalacak) ... */}
+      
       {/* Ses Yükleme Onay Modalı */}
       {showAudioModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>

@@ -16,8 +16,9 @@ const App: React.FC = () => {
   const [bgImages, setBgImages] = useState<string[]>([]); // Yüklü resimler listesi
   const [bgImage, setBgImage] = useState<string | null>(null); // Aktif resim
   const [bgImageStyle, setBgImageStyle] = useState<BgImageStyle>('cover');
-  const [bgImagePosition, setBgImagePosition] = useState<string>('center center'); // Crop Position
-  const [bgImageZoom, setBgImageZoom] = useState<number>(1); // Crop Zoom
+  
+  // Gelişmiş Pozisyonlama (Cropper Sync)
+  const [bgTransform, setBgTransform] = useState<{ x: number, y: number, scale: number }>({ x: 0, y: 0, scale: 1 });
 
   // Widget State
   const [isWidgetMinimized, setIsWidgetMinimized] = useState<boolean>(false);
@@ -108,8 +109,7 @@ const App: React.FC = () => {
       if (!bgImage && newImages.length > 0) {
           setBgImage(newImages[0]);
           setBgMode('image');
-          setBgImagePosition('center center');
-          setBgImageZoom(1);
+          setBgTransform({ x: 0, y: 0, scale: 1 });
       }
   };
 
@@ -134,18 +134,32 @@ const App: React.FC = () => {
       });
   };
 
+  const handleDeckReset = (deleteImages: boolean, resetSize: boolean) => {
+      if (deleteImages) {
+          setBgImages([]);
+          setBgImage(null);
+          setBgMode('dark');
+      }
+      if (resetSize) {
+          setBgImageStyle('cover');
+          setBgTransform({ x: 0, y: 0, scale: 1 });
+      }
+  };
+
   const handleBgImageStyleChange = (style: BgImageStyle) => {
       setBgImageStyle(style);
-      // Reset zoom/pos when changing style type to avoid confusion
+      // Stil değişince zoom/pos sıfırla
       if (style !== 'cover') {
-         setBgImagePosition('center center');
-         setBgImageZoom(1);
+         setBgTransform({ x: 0, y: 0, scale: 1 });
       }
   };
   
   const handleBgPositionChange = (pos: string, zoom: number) => {
-      setBgImagePosition(pos);
-      setBgImageZoom(zoom);
+      // Deprecated
+  };
+
+  const handleBgTransformChange = (x: number, y: number, scale: number) => {
+      setBgTransform({ x, y, scale });
   };
 
   const handleTextSubmit = (text: string) => {
@@ -261,8 +275,7 @@ const App: React.FC = () => {
     setCameraResetTrigger(prev => prev + 1);
     setBgMode('dark');
     setIsSceneVisible(true);
-    setBgImageZoom(1);
-    setBgImagePosition('center center');
+    setBgTransform({ x: 0, y: 0, scale: 1 });
   };
 
   const rotateCanvasX = () => setCanvasRotation(prev => [prev[0] + Math.PI / 2, prev[1], prev[2]]);
@@ -285,12 +298,14 @@ const App: React.FC = () => {
               <img 
                 src={bgImage} 
                 alt="background" 
-                className="w-full h-full opacity-100 transition-all duration-700"
+                className="w-full h-full opacity-100 transition-all duration-700 max-w-none"
                 style={{ 
+                    position: 'absolute',
+                    top: '50%',
+                    left: '50%',
                     objectFit: bgImageStyle,
-                    objectPosition: bgImagePosition,
-                    transform: `scale(${bgImageZoom})`,
-                    transformOrigin: bgImagePosition
+                    transform: `translate(-50%, -50%) translate(${bgTransform.x}px, ${bgTransform.y}px) scale(${bgTransform.scale})`,
+                    transformOrigin: 'center center'
                 }}
               />
           )}
@@ -409,7 +424,9 @@ const App: React.FC = () => {
         onBgImageStyleChange={handleBgImageStyleChange}
         bgImageStyle={bgImageStyle}
         onRemoveBgImage={handleRemoveBgImage}
-        onBgPositionChange={handleBgPositionChange}
+        onBgPositionChange={handleBgPositionChange} 
+        onBgTransformChange={handleBgTransformChange}
+        onResetDeck={handleDeckReset} 
       />
     </div>
   );
