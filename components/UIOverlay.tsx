@@ -51,6 +51,8 @@ interface UIOverlayProps {
   onAudioChange: (mode: AudioMode, url: string | null, title?: string) => void;
   audioMode: AudioMode;
   audioTitle?: string | null;
+  isPlaying?: boolean;
+  onTogglePlay?: () => void;
   // Reset
   onResetAll: () => void;
   onClearCanvas: () => void;
@@ -109,6 +111,8 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   onAudioChange,
   audioMode,
   audioTitle,
+  isPlaying = true,
+  onTogglePlay,
   onResetAll,
   onClearCanvas,
   bgMode,
@@ -383,12 +387,29 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
       {/* --- AUDIO TITLE INDICATOR & SETTINGS --- */}
       {showMusicPlayer && (
           <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-40 transition-all duration-700 ease-in-out ${musicPlayerClass}`}>
-             <div className={`relative group rounded-full px-5 py-2 backdrop-blur-md shadow-lg border border-white/10 flex items-center justify-center overflow-visible max-w-[280px] transition-all duration-300 ${isLightMode ? 'bg-black/10 text-black border-black/10' : 'bg-white/10 text-white'}`}>
+             <div 
+                className={`relative group rounded-full px-5 py-2 backdrop-blur-md shadow-lg border border-white/10 flex items-center justify-center overflow-visible max-w-[280px] transition-all duration-300 cursor-pointer ${isLightMode ? 'bg-black/10 text-black border-black/10' : 'bg-white/10 text-white'}`}
+                onClick={onTogglePlay}
+             >
+                 {/* Play/Pause Overlay - Hover Effect */}
+                 <div className="absolute inset-0 z-20 flex items-center justify-center rounded-full bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    {isPlaying ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" className="text-white drop-shadow-md"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                    ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" className="text-white drop-shadow-md"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    )}
+                 </div>
                  
+                 {!isPlaying && (
+                     <div className="absolute left-2 z-10 flex items-center justify-center group-hover:opacity-0 transition-opacity">
+                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className={isLightMode ? 'text-black/50' : 'text-white/50'}><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                     </div>
+                 )}
+
                  {/* Marquee Content */}
-                 <div className="w-full overflow-hidden">
+                 <div className={`w-full overflow-hidden ${!isPlaying ? 'opacity-50' : 'opacity-100'} transition-opacity`}>
                     {audioTitle.length > 30 ? (
-                        <div className="animate-marquee-loop">
+                        <div className="animate-marquee-loop" style={{ animationPlayState: isPlaying ? 'running' : 'paused' }}>
                             <span className="whitespace-nowrap pr-[300px] text-[15px]" style={{ fontFamily: musicFont, fontWeight: musicBold ? 'bold' : 'normal', fontStyle: musicItalic ? 'italic' : 'normal' }}>{audioTitle}</span>
                             <span className="whitespace-nowrap pr-[300px] text-[15px]" style={{ fontFamily: musicFont, fontWeight: musicBold ? 'bold' : 'normal', fontStyle: musicItalic ? 'italic' : 'normal' }}>{audioTitle}</span>
                         </div>
@@ -400,14 +421,14 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                  {/* Settings Button (Hover) */}
                  <button 
                     onClick={(e) => { e.stopPropagation(); setShowMusicSettings(!showMusicSettings); }}
-                    className={`absolute -right-3 -top-3 w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 shadow-md ${isLightMode ? 'bg-white text-black border border-black/10' : 'bg-black text-white border border-white/20'}`}
+                    className={`absolute -right-3 -top-3 w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 shadow-md z-30 ${isLightMode ? 'bg-white text-black border border-black/10' : 'bg-black text-white border border-white/20'}`}
                  >
                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                  </button>
 
                  {/* Music Settings Menu */}
                  {showMusicSettings && (
-                    <div className="absolute top-10 left-1/2 -translate-x-1/2 w-64 bg-[#111]/95 backdrop-blur-xl border border-white/20 rounded-2xl p-4 shadow-[0_20px_50px_rgba(0,0,0,0.6)] animate-config-pop cursor-default" onPointerDown={stopProp}>
+                    <div className="absolute top-10 left-1/2 -translate-x-1/2 w-64 bg-[#111]/95 backdrop-blur-xl border border-white/20 rounded-2xl p-4 shadow-[0_20px_50px_rgba(0,0,0,0.6)] animate-config-pop cursor-default z-40" onPointerDown={stopProp} onClick={(e) => e.stopPropagation()}>
                         <h4 className="text-xs font-mono uppercase text-gray-500 mb-3 tracking-widest border-b border-white/10 pb-2 vfx-item delay-1 text-center">Müzik Ayarları</h4>
                         
                         {/* Font Selection */}

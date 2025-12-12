@@ -22,6 +22,7 @@ interface ExperienceProps {
   activePreset: PresetType;
   audioMode: AudioMode;
   audioUrl: string | null;
+  isPlaying: boolean;
   isDrawing: boolean;
   brushSize: number;
   getDrawingDataRef: React.MutableRefObject<{ getXY: () => string, getYZ: () => string } | null>;
@@ -229,6 +230,7 @@ export const Experience: React.FC<ExperienceProps> = ({
   activePreset,
   audioMode,
   audioUrl,
+  isPlaying,
   isDrawing,
   brushSize,
   getDrawingDataRef,
@@ -306,6 +308,7 @@ export const Experience: React.FC<ExperienceProps> = ({
                 activePreset={activePreset}
                 audioMode={audioMode}
                 audioUrl={audioUrl}
+                isPlaying={isPlaying}
                 isDrawing={false}
                 canvasRotation={canvasRotation}
                 currentShape={currentShape}

@@ -47,6 +47,7 @@ const App: React.FC = () => {
   const [audioMode, setAudioMode] = useState<AudioMode>('none');
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioTitle, setAudioTitle] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState<boolean>(true);
 
   // Ayarlar
   const [repulsionStrength, setRepulsionStrength] = useState<number>(50);
@@ -168,6 +169,7 @@ const App: React.FC = () => {
     setAudioMode(mode);
     setAudioUrl(url);
     setAudioTitle(title || null);
+    setIsPlaying(true); // Yeni müzik yüklendiğinde otomatik başlat
   };
 
   const handleClearCanvas = () => {
@@ -194,6 +196,7 @@ const App: React.FC = () => {
     setAudioMode('none');
     setAudioUrl(null);
     setAudioTitle(null);
+    setIsPlaying(true);
     setRepulsionStrength(50);
     setRepulsionRadius(50);
     setParticleCount(40000);
@@ -273,6 +276,7 @@ const App: React.FC = () => {
             activePreset={activePreset}
             audioMode={audioMode}
             audioUrl={audioUrl}
+            isPlaying={isPlaying} 
             isDrawing={isDrawing}
             brushSize={brushSize}
             getDrawingDataRef={getDrawingDataRef}
@@ -319,6 +323,8 @@ const App: React.FC = () => {
         onAudioChange={handleAudioChange}
         audioMode={audioMode}
         audioTitle={audioTitle}
+        isPlaying={isPlaying}
+        onTogglePlay={() => setIsPlaying(!isPlaying)}
         onResetAll={handleResetAll}
         onClearCanvas={handleClearCanvas}
         bgMode={bgMode}

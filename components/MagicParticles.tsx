@@ -24,6 +24,7 @@ interface MagicParticlesProps {
   activePreset: PresetType;
   audioMode: AudioMode;
   audioUrl: string | null;
+  isPlaying: boolean;
   isDrawing: boolean;
   canvasRotation?: [number, number, number];
   currentShape?: ShapeType;
@@ -46,6 +47,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   activePreset,
   audioMode,
   audioUrl,
+  isPlaying,
   isDrawing,
   canvasRotation = [0, 0, 0],
   currentShape = 'sphere'
@@ -121,7 +123,9 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                 const audioEl = new Audio(audioUrl);
                 audioEl.crossOrigin = "anonymous";
                 audioEl.loop = true;
-                audioEl.play().catch(e => console.warn("Otomatik oynatma engellendi.", e));
+                if (isPlaying) {
+                   audioEl.play().catch(e => console.warn("Otomatik oynatma engellendi.", e));
+                }
                 
                 audioElementRef.current = audioEl;
                 const source = ctx.createMediaElementSource(audioEl);
@@ -149,6 +153,24 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
         if (audioElementRef.current) audioElementRef.current.pause();
     };
   }, [audioMode, audioUrl]);
+
+  // isPlaying değiştiğinde sesi yönet
+  useEffect(() => {
+    if (audioMode === 'file' && audioElementRef.current) {
+        if (isPlaying) {
+            audioElementRef.current.play().catch(e => console.warn("Oynatma hatası:", e));
+        } else {
+            audioElementRef.current.pause();
+        }
+    }
+    else if (audioMode === 'mic' && audioContextRef.current) {
+        if (isPlaying) {
+             audioContextRef.current.resume();
+        } else {
+             audioContextRef.current.suspend();
+        }
+    }
+  }, [isPlaying, audioMode]);
 
   const getTriangleUV = (index: number, totalPoints: number) => {
       const rows = Math.ceil(Math.sqrt(2 * totalPoints));
@@ -674,7 +696,8 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     let isAudioActive = audioMode !== 'none';
     let avgVolume = 0;
 
-    if (isAudioActive && analyserRef.current && dataArrayRef.current) {
+    // Eğer müzik duraklatıldıysa veya sessizse, görselleştirme yapma
+    if (isAudioActive && isPlaying && analyserRef.current && dataArrayRef.current) {
         analyserRef.current.getByteFrequencyData(dataArrayRef.current);
         let sum = 0;
         const len = dataArrayRef.current.length;
