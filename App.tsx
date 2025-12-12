@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Experience } from './components/Experience';
 import { UIOverlay } from './components/UIOverlay';
 import { ClockWidget } from './components/ClockWidget';
-import { PresetType, AudioMode, BackgroundMode, BgImageStyle, ShapeType } from './types';
+import { PresetType, AudioMode, BackgroundMode, BgImageStyle, ShapeType, SlideshowSettings } from './types';
 
 const App: React.FC = () => {
   const [currentText, setCurrentText] = useState<string>('');
@@ -15,6 +15,14 @@ const App: React.FC = () => {
   // Çoklu Arka Plan Resmi Yönetimi
   const [bgImages, setBgImages] = useState<string[]>([]); // Yüklü resimler listesi (Deste)
   const [bgImage, setBgImage] = useState<string | null>(null); // Desteden seçilen aktif resim
+  
+  // Slayt Gösterisi State
+  const [slideshowSettings, setSlideshowSettings] = useState<SlideshowSettings>({
+      active: false,
+      duration: 5,
+      order: 'sequential',
+      transition: 'fade'
+  });
   
   // GİZLİ GALERİ (Kırpılmış Resim Hafızası) - Tek bir slot
   const [croppedBgImage, setCroppedBgImage] = useState<string | null>(null); 
@@ -69,6 +77,49 @@ const App: React.FC = () => {
   const [modelDensity, setModelDensity] = useState<number>(50); 
 
   const [isUIInteraction, setIsUIInteraction] = useState<boolean>(false);
+
+  // --- Slayt Gösterisi Mantığı ---
+  useEffect(() => {
+      let intervalId: any;
+
+      if (slideshowSettings.active && bgImages.length > 1 && bgMode === 'image') {
+          intervalId = setInterval(() => {
+              setBgImages(currentImages => {
+                  if (currentImages.length <= 1) return currentImages;
+                  
+                  // Aktif resmin indeksini bul
+                  // Not: setBgImage closure içinde eski değeri görebilir, bu yüzden setBgImage içinde işlem yapmak daha güvenli ama
+                  // burada bgImage state'i dışarıda. Basitlik adına bgImages üzerinden index bulup ilerleyeceğiz.
+                  
+                  setBgImage(currentImg => {
+                      const currentIndex = currentImages.indexOf(currentImg || '');
+                      let nextIndex = 0;
+
+                      if (slideshowSettings.order === 'random') {
+                          do {
+                              nextIndex = Math.floor(Math.random() * currentImages.length);
+                          } while (nextIndex === currentIndex && currentImages.length > 1);
+                      } else {
+                          nextIndex = (currentIndex + 1) % currentImages.length;
+                      }
+                      
+                      return currentImages[nextIndex];
+                  });
+                  
+                  return currentImages;
+              });
+              
+              // Slayt değiştiğinde kırpılmış resmi sıfırla (orijinale dön)
+              setCroppedBgImage(null);
+
+          }, Math.max(3000, slideshowSettings.duration * 1000));
+      }
+
+      return () => {
+          if (intervalId) clearInterval(intervalId);
+      };
+  }, [slideshowSettings, bgImages.length, bgMode]);
+
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -151,6 +202,7 @@ const App: React.FC = () => {
           setBgImage(null);
           setCroppedBgImage(null);
           setBgMode('dark');
+          setSlideshowSettings(prev => ({ ...prev, active: false })); // Stop slideshow
       }
       if (resetSize) {
           setBgImageStyle('cover');
@@ -280,6 +332,7 @@ const App: React.FC = () => {
     setIsSceneVisible(true);
     setBgImage(null);
     setCroppedBgImage(null);
+    setSlideshowSettings(prev => ({...prev, active: false}));
   };
 
   const rotateCanvasX = () => setCanvasRotation(prev => [prev[0] + Math.PI / 2, prev[1], prev[2]]);
@@ -288,6 +341,29 @@ const App: React.FC = () => {
 
   // Arka planda gösterilecek nihai resim (Kırpılmış varsa o, yoksa orijinal)
   const displayImage = bgMode === 'image' ? (croppedBgImage || bgImage) : null;
+
+  // Geçiş Efekti Sınıfları
+  const getTransitionClass = () => {
+      if (!slideshowSettings.active) return 'transition-opacity duration-700';
+      
+      let t = slideshowSettings.transition;
+      if (t === 'random') {
+          const effects = ['slide-left', 'slide-right', 'slide-up', 'slide-down', 'fade', 'blur', 'transform'];
+          t = effects[Math.floor(Math.random() * effects.length)] as any;
+      }
+
+      switch (t) {
+          case 'slide-left': return 'animate-slide-left';
+          case 'slide-right': return 'animate-slide-right';
+          case 'slide-up': return 'animate-slide-up';
+          case 'slide-down': return 'animate-slide-down';
+          case 'fade': return 'animate-fade-in-out';
+          case 'blur': return 'animate-blur-in-out';
+          case 'transform': return 'animate-transform-zoom';
+          case 'particles': return 'animate-pixelate'; // CSS simülasyonu
+          default: return 'transition-all duration-1000';
+      }
+  };
 
   return (
     <div 
@@ -302,14 +378,15 @@ const App: React.FC = () => {
            }}
       >
           {displayImage && (
+              // Key prop'u değiştirmek CSS animasyonunu her resim değişiminde tetikler
               <img 
+                key={displayImage}
                 src={displayImage} 
                 alt="background" 
-                className="w-full h-full opacity-100 transition-all duration-700 select-none pointer-events-none"
+                className={`w-full h-full object-cover select-none pointer-events-none ${getTransitionClass()}`}
                 style={{ 
                     objectFit: bgImageStyle,
                     objectPosition: 'center center',
-                    // Eğer kırpılmış resimse zaten pozisyonlanmıştır, ekstra transform'a gerek yok
                 }}
               />
           )}
@@ -329,6 +406,31 @@ const App: React.FC = () => {
           @keyframes gradientMove { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
           @keyframes colorCycle { 0% { background-color: #ff0000; } 20% { background-color: #ffff00; } 40% { background-color: #00ff00; } 60% { background-color: #00ffff; } 80% { background-color: #0000ff; } 100% { background-color: #ff00ff; } }
           .animate-color-cycle { animation: colorCycle 10s infinite alternate linear; }
+
+          /* Slayt Geçiş Animasyonları */
+          @keyframes slide-left { 0% { transform: translateX(100%); opacity: 0; } 100% { transform: translateX(0); opacity: 1; } }
+          .animate-slide-left { animation: slide-left 1s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+
+          @keyframes slide-right { 0% { transform: translateX(-100%); opacity: 0; } 100% { transform: translateX(0); opacity: 1; } }
+          .animate-slide-right { animation: slide-right 1s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+
+          @keyframes slide-up { 0% { transform: translateY(100%); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
+          .animate-slide-up { animation: slide-up 1s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+
+          @keyframes slide-down { 0% { transform: translateY(-100%); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
+          .animate-slide-down { animation: slide-down 1s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+
+          @keyframes fade-in-out { 0% { opacity: 0; } 100% { opacity: 1; } }
+          .animate-fade-in-out { animation: fade-in-out 1.5s ease-in-out forwards; }
+
+          @keyframes blur-in-out { 0% { filter: blur(20px); opacity: 0; } 100% { filter: blur(0px); opacity: 1; } }
+          .animate-blur-in-out { animation: blur-in-out 1.2s ease-out forwards; }
+
+          @keyframes transform-zoom { 0% { transform: scale(1.5) rotate(5deg); opacity: 0; } 100% { transform: scale(1) rotate(0deg); opacity: 1; } }
+          .animate-transform-zoom { animation: transform-zoom 1.5s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+
+          @keyframes pixelate { 0% { filter: contrast(200%) brightness(500%) saturate(0); opacity: 0; transform: scale(1.2); } 50% { filter: contrast(100%) brightness(100%) saturate(1); opacity: 1; transform: scale(1); } 100% { opacity: 1; } }
+          .animate-pixelate { animation: pixelate 1s steps(10) forwards; }
       `}</style>
       
       <ClockWidget 
@@ -430,6 +532,8 @@ const App: React.FC = () => {
         onRemoveBgImage={handleRemoveBgImage}
         onBgTransformChange={handleApplyCrop} 
         onResetDeck={handleDeckReset} 
+        slideshowSettings={slideshowSettings}
+        onSlideshowSettingsChange={setSlideshowSettings}
       />
     </div>
   );

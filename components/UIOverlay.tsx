@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { PresetType, AudioMode, BackgroundMode, BgImageStyle, ShapeType } from '../types';
+import { PresetType, AudioMode, BackgroundMode, BgImageStyle, ShapeType, SlideshowSettings, SlideshowTransition, SlideshowOrder } from '../types';
 
 const FONTS = [
   { name: 'Mono', value: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' },
@@ -91,6 +91,10 @@ interface UIOverlayProps {
   onBgPositionChange?: (pos: string, zoom: number) => void; 
   onBgTransformChange?: (croppedDataUrl: string) => void; 
   onResetDeck?: (deleteImages: boolean, resetSize: boolean) => void;
+  
+  // Slideshow Props
+  slideshowSettings?: SlideshowSettings;
+  onSlideshowSettingsChange?: (settings: React.SetStateAction<SlideshowSettings>) => void;
 }
 
 export const UIOverlay: React.FC<UIOverlayProps> = ({ 
@@ -154,7 +158,9 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   onRemoveBgImage,
   onBgPositionChange,
   onBgTransformChange,
-  onResetDeck
+  onResetDeck,
+  slideshowSettings,
+  onSlideshowSettingsChange
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
@@ -184,6 +190,10 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   const [deckHideInCleanMode, setDeckHideInCleanMode] = useState(false);
   const [animDirection, setAnimDirection] = useState<'next' | 'prev' | null>(null);
   
+  // Slideshow UI State
+  const [showSlideshowPanel, setShowSlideshowPanel] = useState(false);
+  const [showTransitionGrid, setShowTransitionGrid] = useState(false);
+
   // Expanded Deck Mode (Right Click)
   const [isDeckExpanded, setIsDeckExpanded] = useState(false);
 
@@ -223,6 +233,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
     setShowMusicSettings(false);
     setDeckShowSettings(false);
     setShowResetMenu(false);
+    setShowSlideshowPanel(false); // Close slideshow panel on general close
     
     // Expand modunu kapat
     if (isDeckExpanded) setIsDeckExpanded(false);
@@ -553,6 +564,43 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
       setShowResetMenu(false);
   };
 
+  // --- SLIDESHOW HELPERS ---
+  const toggleSlideshow = () => {
+      if (onSlideshowSettingsChange && slideshowSettings) {
+          onSlideshowSettingsChange(prev => ({ ...prev, active: !prev.active }));
+      }
+  };
+
+  const updateSlideshow = (updates: Partial<SlideshowSettings>) => {
+      if (onSlideshowSettingsChange) {
+          onSlideshowSettingsChange(prev => ({ ...prev, ...updates }));
+      }
+  };
+
+  const TRANSITION_ICONS: Record<SlideshowTransition, React.ReactNode> = {
+      'random': <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l5 5M4 4l5 5"/></svg>,
+      'slide-left': <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>,
+      'slide-right': <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>,
+      'slide-up': <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>,
+      'slide-down': <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>,
+      'particles': <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="4" cy="4" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="20" cy="4" r="2"/><circle cx="4" cy="20" r="2"/><circle cx="12" cy="20" r="2"/><circle cx="20" cy="20" r="2"/></svg>,
+      'transform': <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a15 15 0 0 1 0 20"/></svg>,
+      'fade': <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeDasharray="4 4"/></svg>,
+      'blur': <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>,
+  };
+
+  const TRANSITION_NAMES: Record<SlideshowTransition, string> = {
+      'random': 'Rastgele',
+      'slide-left': 'Sola Kay',
+      'slide-right': 'Sağa Kay',
+      'slide-up': 'Yukarı',
+      'slide-down': 'Aşağı',
+      'particles': 'Partikül',
+      'transform': 'Dönüşüm',
+      'fade': 'Solma',
+      'blur': 'Bulanık',
+  };
+
   return (
     <>
       <style>{`
@@ -563,7 +611,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         @keyframes mercury-blob { 0% { transform: scale(1); border-color: #aaa; background: rgba(200,200,200,0.2); } 50% { transform: scale(1.1); border-color: #fff; background: rgba(255,255,255,0.4); } 100% { transform: scale(1); border-color: #aaa; background: rgba(200,200,200,0.2); } }
         @keyframes disco-spin { 0% { border-color: #f00; box-shadow: 0 0 10px #f00; } 20% { border-color: #ff0; box-shadow: 0 0 10px #ff0; } 40% { border-color: #0f0; box-shadow: 0 0 10px #0f0; } 60% { border-color: #0ff; box-shadow: 0 0 10px #0ff; } 80% { border-color: #00f; box-shadow: 0 0 10px #00f; } 100% { border-color: #f0f; box-shadow: 0 0 10px #f0f; } }
 
-        /* Preset Button Active States - Added !important to enforce override */
+        /* Preset Button Active States */
         .preset-btn.active.preset-electric { animation: electric-pulse 1.5s infinite !important; background: rgba(0, 255, 255, 0.1) !important; }
         .preset-btn.active.preset-fire { animation: fire-burn 1.5s infinite !important; background: rgba(255, 69, 0, 0.1) !important; }
         .preset-btn.active.preset-water { animation: water-flow 3s infinite !important; background: rgba(0, 100, 255, 0.1) !important; }
@@ -877,6 +925,67 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
               {/* Deck Settings Popup */}
               {deckShowSettings && !isDeckExpanded && (
                   <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-32 bg-[#111]/95 backdrop-blur-xl border border-white/20 rounded-xl p-2 shadow-[0_10px_30px_rgba(0,0,0,0.5)] animate-config-pop origin-bottom z-[60]" onClick={stopProp}>
+                      
+                      {/* Slayt Modu Paneli (Yukarı Doğru Uzayan Kısım) */}
+                      {showSlideshowPanel && slideshowSettings && (
+                          <div className="absolute bottom-full left-0 w-full mb-2 bg-[#111]/95 backdrop-blur-xl border border-white/20 rounded-xl p-2 shadow-xl animate-in slide-in-from-bottom-2 fade-in duration-200 z-[70] origin-bottom">
+                              <h5 className="text-[9px] font-mono text-gray-400 text-center uppercase tracking-widest mb-2 border-b border-white/10 pb-1">Slayt Ayarları</h5>
+                              
+                              {/* 1. Süre Girişi */}
+                              <div className="flex items-center gap-1 mb-2 bg-white/5 rounded p-1 border border-white/10">
+                                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                  <input 
+                                    type="number" 
+                                    min="3" 
+                                    max="300" 
+                                    value={slideshowSettings.duration} 
+                                    onChange={(e) => updateSlideshow({ duration: Math.max(3, Math.min(300, parseInt(e.target.value) || 3)) })} 
+                                    className="w-full bg-transparent text-[10px] text-white text-center outline-none"
+                                  />
+                                  <span className="text-[9px] text-gray-500">sn</span>
+                              </div>
+
+                              {/* 2. Sıra Seçimi */}
+                              <div className="flex gap-1 mb-2">
+                                  <button onClick={() => updateSlideshow({ order: 'random' })} className={`flex-1 py-1 rounded flex justify-center items-center hover:scale-105 transition-all ${slideshowSettings.order === 'random' ? 'bg-blue-600 text-white' : 'bg-white/5 text-gray-400'}`} title="Rastgele">
+                                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={slideshowSettings.order === 'random' ? 'animate-spin-slow' : ''}><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l5 5M4 4l5 5"/></svg>
+                                  </button>
+                                  <button onClick={() => updateSlideshow({ order: 'sequential' })} className={`flex-1 py-1 rounded flex justify-center items-center hover:scale-105 transition-all ${slideshowSettings.order === 'sequential' ? 'bg-blue-600 text-white' : 'bg-white/5 text-gray-400'}`} title="Sırayla">
+                                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="1 4 1 10 7 10"/><polyline points="23 20 23 14 17 14"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
+                                  </button>
+                              </div>
+
+                              {/* 3. Geçiş Efekti */}
+                              <div className="relative">
+                                  <button onClick={() => setShowTransitionGrid(!showTransitionGrid)} className="w-full py-1.5 rounded bg-white/5 border border-white/10 text-[9px] text-gray-300 hover:bg-white/10 flex items-center justify-between px-2">
+                                      <div className="flex items-center gap-1">
+                                          {TRANSITION_ICONS[slideshowSettings.transition]}
+                                          <span className="truncate max-w-[60px]">{TRANSITION_NAMES[slideshowSettings.transition]}</span>
+                                      </div>
+                                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`transition-transform ${showTransitionGrid ? 'rotate-180' : ''}`}><polyline points="6 9 12 15 18 9"/></svg>
+                                  </button>
+                                  
+                                  {/* Grid Menu */}
+                                  {showTransitionGrid && (
+                                      <div className="absolute bottom-full left-0 w-full mb-1 bg-[#111] border border-white/20 rounded-lg p-1 grid grid-cols-3 gap-1 shadow-2xl z-[80]">
+                                          {(Object.keys(TRANSITION_ICONS) as SlideshowTransition[]).map((t) => (
+                                              <button 
+                                                key={t}
+                                                onClick={() => { updateSlideshow({ transition: t }); setShowTransitionGrid(false); }}
+                                                className={`w-full aspect-square flex items-center justify-center rounded hover:scale-110 transition-all ${slideshowSettings.transition === t ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'}`}
+                                                title={TRANSITION_NAMES[t]}
+                                              >
+                                                  <div className="hover:animate-pulse">
+                                                    {TRANSITION_ICONS[t]}
+                                                  </div>
+                                              </button>
+                                          ))}
+                                      </div>
+                                  )}
+                              </div>
+                          </div>
+                      )}
+
                       <h4 className="text-[10px] font-mono uppercase text-gray-500 mb-2 tracking-widest text-center border-b border-white/10 pb-1">Resim Boyutu</h4>
                       <div className="flex flex-col gap-1 mb-2">
                           <div className="flex gap-1">
@@ -889,7 +998,14 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                           </div>
                           <button onClick={() => onBgImageStyleChange && onBgImageStyleChange('contain')} className={`text-[10px] py-1 px-2 rounded border transition-colors ${bgImageStyle === 'contain' ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Ortala</button>
                           <button onClick={() => onBgImageStyleChange && onBgImageStyleChange('fill')} className={`text-[10px] py-1 px-2 rounded border transition-colors ${bgImageStyle === 'fill' ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Uzat</button>
+                          
+                          {/* Slayt Modu Butonu */}
+                          <button onClick={() => { toggleSlideshow(); setShowSlideshowPanel(!showSlideshowPanel); }} className={`text-[10px] py-1 px-2 rounded border transition-colors flex items-center justify-center gap-1 ${slideshowSettings?.active ? 'bg-green-600 border-green-500 text-white shadow-[0_0_10px_rgba(0,255,0,0.3)] animate-pulse' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                              <span>{slideshowSettings?.active ? 'SLAYT AÇIK' : 'SLAYT'}</span>
+                          </button>
                       </div>
+                      
                       <div className="border-t border-white/10 pt-2 flex items-center justify-between">
                           <span className="text-[9px] text-gray-400">Temiz Modda Gizle</span>
                           <button onClick={() => setDeckHideInCleanMode(!deckHideInCleanMode)} className={`w-6 h-3 rounded-full relative transition-colors ${deckHideInCleanMode ? 'bg-blue-600' : 'bg-white/10'}`}>
@@ -935,7 +1051,6 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                  KONUMLANDIRMA MODU
               </div>
               
-              {/* Full Screen Container for Interaction */}
               <div 
                   className="relative w-full h-full overflow-hidden flex items-center justify-center"
                   ref={cropContainerRef}
@@ -946,7 +1061,6 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                   onWheel={handleCropWheel}
                   style={{ cursor: isDraggingCrop ? 'grabbing' : 'grab' }}
               >
-                  {/* The Image (Background) - Using transform match App.tsx */}
                   <img 
                     ref={cropImageRef}
                     src={cropImage} 
@@ -954,31 +1068,21 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                     className="absolute max-w-none transition-transform duration-75"
                     style={{
                         transform: `translate(${cropOffset.x}px, ${cropOffset.y}px) scale(${cropScale})`,
-                        transformOrigin: 'center center' // Sabit merkez
+                        transformOrigin: 'center center'
                     }}
                     draggable={false}
                   />
-                  
-                  {/* Overlay Dimmer */}
                   <div className="absolute inset-0 bg-black/60 pointer-events-none"></div>
-
-                  {/* The 16:9 Frame */}
                    <div 
                         className="relative w-[80vw] max-w-[1280px] aspect-video border-2 border-blue-500 shadow-[0_0_0_9999px_rgba(0,0,0,0.85)] pointer-events-none z-10"
                    >
-                        {/* Grid Lines */}
                         <div className="absolute left-1/3 top-0 bottom-0 w-px bg-blue-500/30"></div>
                         <div className="absolute right-1/3 top-0 bottom-0 w-px bg-blue-500/30"></div>
                         <div className="absolute top-1/3 left-0 right-0 h-px bg-blue-500/30"></div>
                         <div className="absolute bottom-1/3 left-0 right-0 h-px bg-blue-500/30"></div>
-                        
-                        <div className="absolute bottom-2 left-2 text-blue-400 text-[10px] font-mono opacity-70">
-                            16:9 REFERENCE FRAME
-                        </div>
+                        <div className="absolute bottom-2 left-2 text-blue-400 text-[10px] font-mono opacity-70">16:9 REFERENCE FRAME</div>
                    </div>
               </div>
-
-              {/* Controls */}
               <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex gap-4 z-50">
                    <div className="bg-black/80 backdrop-blur border border-white/10 px-4 py-2 rounded-full text-white/50 text-xs font-mono">
                       POS: {Math.round(cropOffset.x)},{Math.round(cropOffset.y)} | ZOOM: {cropScale.toFixed(2)}x
@@ -1011,8 +1115,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         </div>
       )}
 
-      {/* --- SOL MENÜ VE KONTROLLER --- */}
-
+      {/* --- SOL MENÜ --- */}
       <div className={`absolute left-6 z-50 flex flex-col gap-4 transition-all duration-500 ease-in-out ${isWidgetMinimized ? 'top-32' : 'top-[230px]'} ${hideLeftClass}`} onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd} onPointerDown={stopProp}>
           <button onClick={() => onPresetChange(activePreset === 'electric' ? 'none' : 'electric')} className={`preset-btn preset-electric w-10 h-10 rounded-full border backdrop-blur-md flex items-center justify-center relative ${activePreset === 'electric' ? 'active' : ''} ${isLightMode ? 'border-black/20 bg-black/5 hover:bg-black/10' : 'border-white/20 bg-black/50 hover:bg-white/10'}`} title="Elektrik Efekti"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-cyan-400 icon-animate-wiggle"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></button>
           <button onClick={() => onPresetChange(activePreset === 'fire' ? 'none' : 'fire')} className={`preset-btn preset-fire w-10 h-10 rounded-full border backdrop-blur-md flex items-center justify-center relative ${activePreset === 'fire' ? 'active' : ''} ${isLightMode ? 'border-black/20 bg-black/5 hover:bg-black/10' : 'border-white/20 bg-black/50 hover:bg-white/10'}`} title="Ateş Efekti"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-orange-500 icon-animate-bounce"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.1.2-2.2.5-3 .5.7 1 1.3 2 1.5z"></path></svg></button>
@@ -1072,6 +1175,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           {isUIHidden ? (<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-animate-spin"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>) : (<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-animate-bounce"><line x1="5" y1="12" x2="19" y2="12"></line></svg>)}
       </button>
 
+      {/* Top Right Controls (Theme, Shape, Config) */}
       <div className={`absolute top-6 right-6 z-50 flex flex-col items-end gap-3 transition-transform duration-500 ${hideTopClass}`} onPointerDown={stopProp}>
         <div className="flex gap-2">
             <button onClick={(e) => { e.stopPropagation(); toggleShapeMenu(); }} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border group ${isLightMode ? `border-black/20 text-black ${isShapeMenuOpen ? 'bg-black/20 scale-110 shadow-[0_0_15px_rgba(0,0,0,0.3)]' : 'bg-black/5 hover:bg-black/10'}` : `border-white/20 text-white ${isShapeMenuOpen ? 'bg-white/20 scale-110 shadow-[0_0_15px_rgba(255,255,255,0.3)]' : 'bg-white/5 hover:bg-white/10'}`}`} title="Şekil Değiştir"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-animate-wiggle"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg></button>
@@ -1221,7 +1325,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         </div>
       )}
 
-      {/* --- ALT MENÜ (YENİDEN EKLENDİ) --- */}
+      {/* --- ALT MENÜ (TAMAMLANDI) --- */}
       <div className="absolute bottom-10 left-0 w-full flex justify-center items-center pointer-events-none z-[100] px-4">
         <div className={`pointer-events-auto w-full max-w-lg relative flex gap-2 items-center transition-transform duration-500 ${hideBottomClass}`} onPointerDown={stopProp}>
           {isPaletteOpen && (
