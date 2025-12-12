@@ -13,13 +13,14 @@ const App: React.FC = () => {
   const [customBgColor, setCustomBgColor] = useState<string>('#000000');
   
   // Çoklu Arka Plan Resmi Yönetimi
-  const [bgImages, setBgImages] = useState<string[]>([]); // Yüklü resimler listesi
-  const [bgImage, setBgImage] = useState<string | null>(null); // Aktif resim
+  const [bgImages, setBgImages] = useState<string[]>([]); // Yüklü resimler listesi (Deste)
+  const [bgImage, setBgImage] = useState<string | null>(null); // Desteden seçilen aktif resim
+  
+  // GİZLİ GALERİ (Kırpılmış Resim Hafızası) - Tek bir slot
+  const [croppedBgImage, setCroppedBgImage] = useState<string | null>(null); 
+
   const [bgImageStyle, setBgImageStyle] = useState<BgImageStyle>('cover');
   
-  // Gelişmiş Pozisyonlama (Cropper Sync)
-  const [bgTransform, setBgTransform] = useState<{ x: number, y: number, scale: number }>({ x: 0, y: 0, scale: 1 });
-
   // Widget State
   const [isWidgetMinimized, setIsWidgetMinimized] = useState<boolean>(false);
 
@@ -97,6 +98,7 @@ const App: React.FC = () => {
       // Diğer modlar için özel veri atamaları
       if (mode === 'image' && extraData) {
           setBgImage(extraData);
+          setCroppedBgImage(null); // Mod değişince kırpma sıfırlanır
       }
       if (mode === 'color' && extraData) {
           setCustomBgColor(extraData);
@@ -108,25 +110,34 @@ const App: React.FC = () => {
       // Eğer hiç resim seçili değilse ve yeni resim eklendiyse, ilkini seç
       if (!bgImage && newImages.length > 0) {
           setBgImage(newImages[0]);
+          setCroppedBgImage(null);
           setBgMode('image');
-          setBgTransform({ x: 0, y: 0, scale: 1 });
       }
   };
 
   const handleBgImageSelectFromDeck = (img: string) => {
       setBgImage(img);
+      setCroppedBgImage(null); // Yeni kart seçilince gizli galeri temizlenir (orijinal görünür)
+      setBgMode('image');
+  };
+
+  // Gizli Galeriye Kayıt
+  const handleApplyCrop = (croppedDataUrl: string) => {
+      setCroppedBgImage(croppedDataUrl); 
       setBgMode('image');
   };
 
   const handleRemoveBgImage = (imgToRemove: string) => {
       setBgImages(prev => {
           const newList = prev.filter(img => img !== imgToRemove);
-          // Eğer aktif resim silindiyse, bir öncekini veya default'u seç
+          // Eğer aktif resim silindiyse
           if (bgImage === imgToRemove) {
               if (newList.length > 0) {
                   setBgImage(newList[0]);
+                  setCroppedBgImage(null);
               } else {
                   setBgImage(null);
+                  setCroppedBgImage(null);
                   setBgMode('dark');
               }
           }
@@ -138,30 +149,22 @@ const App: React.FC = () => {
       if (deleteImages) {
           setBgImages([]);
           setBgImage(null);
+          setCroppedBgImage(null);
           setBgMode('dark');
       }
       if (resetSize) {
           setBgImageStyle('cover');
-          setBgTransform({ x: 0, y: 0, scale: 1 });
+          setCroppedBgImage(null); // Boyut resetlenince orijinal döner
       }
   };
 
   const handleBgImageStyleChange = (style: BgImageStyle) => {
       setBgImageStyle(style);
-      // Stil değişince zoom/pos sıfırla
       if (style !== 'cover') {
-         setBgTransform({ x: 0, y: 0, scale: 1 });
+         setCroppedBgImage(null); 
       }
   };
   
-  const handleBgPositionChange = (pos: string, zoom: number) => {
-      // Deprecated
-  };
-
-  const handleBgTransformChange = (x: number, y: number, scale: number) => {
-      setBgTransform({ x, y, scale });
-  };
-
   const handleTextSubmit = (text: string) => {
     setCurrentText(text);
     setImageSourceXY(null);
@@ -275,12 +278,16 @@ const App: React.FC = () => {
     setCameraResetTrigger(prev => prev + 1);
     setBgMode('dark');
     setIsSceneVisible(true);
-    setBgTransform({ x: 0, y: 0, scale: 1 });
+    setBgImage(null);
+    setCroppedBgImage(null);
   };
 
   const rotateCanvasX = () => setCanvasRotation(prev => [prev[0] + Math.PI / 2, prev[1], prev[2]]);
   const rotateCanvasY = () => setCanvasRotation(prev => [prev[0], prev[1] + Math.PI / 2, prev[2]]);
   const rotateCanvasZ = () => setCanvasRotation(prev => [prev[0], prev[1], prev[2] + Math.PI / 2]);
+
+  // Arka planda gösterilecek nihai resim (Kırpılmış varsa o, yoksa orijinal)
+  const displayImage = bgMode === 'image' ? (croppedBgImage || bgImage) : null;
 
   return (
     <div 
@@ -294,18 +301,15 @@ const App: React.FC = () => {
                                 bgMode === 'color' ? customBgColor : 'transparent'
            }}
       >
-          {bgMode === 'image' && bgImage && (
+          {displayImage && (
               <img 
-                src={bgImage} 
+                src={displayImage} 
                 alt="background" 
-                className="w-full h-full opacity-100 transition-all duration-700 max-w-none"
+                className="w-full h-full opacity-100 transition-all duration-700 select-none pointer-events-none"
                 style={{ 
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
                     objectFit: bgImageStyle,
-                    transform: `translate(-50%, -50%) translate(${bgTransform.x}px, ${bgTransform.y}px) scale(${bgTransform.scale})`,
-                    transformOrigin: 'center center'
+                    objectPosition: 'center center',
+                    // Eğer kırpılmış resimse zaten pozisyonlanmıştır, ekstra transform'a gerek yok
                 }}
               />
           )}
@@ -424,8 +428,7 @@ const App: React.FC = () => {
         onBgImageStyleChange={handleBgImageStyleChange}
         bgImageStyle={bgImageStyle}
         onRemoveBgImage={handleRemoveBgImage}
-        onBgPositionChange={handleBgPositionChange} 
-        onBgTransformChange={handleBgTransformChange}
+        onBgTransformChange={handleApplyCrop} 
         onResetDeck={handleDeckReset} 
       />
     </div>

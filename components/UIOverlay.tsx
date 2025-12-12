@@ -88,8 +88,8 @@ interface UIOverlayProps {
   onBgImageStyleChange?: (style: BgImageStyle) => void;
   bgImageStyle?: BgImageStyle;
   onRemoveBgImage?: (img: string) => void;
-  onBgPositionChange?: (pos: string, zoom: number) => void; // Eski
-  onBgTransformChange?: (x: number, y: number, scale: number) => void; // Yeni
+  onBgPositionChange?: (pos: string, zoom: number) => void; 
+  onBgTransformChange?: (croppedDataUrl: string) => void; 
   onResetDeck?: (deleteImages: boolean, resetSize: boolean) => void;
 }
 
@@ -207,6 +207,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   const audioInputRef = useRef<HTMLInputElement>(null);
   const bgImageInputRef = useRef<HTMLInputElement>(null);
   const cropContainerRef = useRef<HTMLDivElement>(null);
+  const cropImageRef = useRef<HTMLImageElement>(null);
   
   const [pendingImage, setPendingImage] = useState<string | null>(null);
 
@@ -352,7 +353,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   };
 
   const handleCountChange = (val: number) => {
-    const clamped = Math.max(22000, Math.min(50000, val));
+    const clamped = Math.max(20000, Math.min(60000, val));
     onParticleCountChange(clamped);
   };
 
@@ -411,18 +412,29 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
       if (bgImages.length <= 1) return;
       
       const direction = e.deltaY > 0 ? 'next' : 'prev';
-      
       setAnimDirection(direction);
 
-      setTimeout(() => {
+      if (direction === 'next') {
+          // Next için: Önce animasyon (atılma), sonra index güncelleme
+          setTimeout(() => {
+              setDeckIndex(prev => {
+                  let nextIdx = prev + 1;
+                  if (nextIdx >= bgImages.length) nextIdx = 0;
+                  return nextIdx;
+              });
+              setAnimDirection(null);
+          }, 400); 
+      } else {
+          // Prev için: Önce index güncelleme (arkadan geleni başa alma), sonra animasyon bitişi
           setDeckIndex(prev => {
-              let nextIdx = prev + (direction === 'next' ? 1 : -1);
+              let nextIdx = prev - 1;
               if (nextIdx < 0) nextIdx = bgImages.length - 1;
-              if (nextIdx >= bgImages.length) nextIdx = 0;
               return nextIdx;
           });
-          setAnimDirection(null);
-      }, 400); 
+          setTimeout(() => {
+              setAnimDirection(null);
+          }, 500);
+      }
   };
 
   // Helper to get relative index images
@@ -444,7 +456,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
   const currentActiveImage = getDeckImage(0);
 
-  // --- CROPPER LOGIC (EXACT PIXEL MATCH) ---
+  // --- CROPPER LOGIC (CANVAS CAPTURE "Secret Gallery") ---
   const openCropper = (e?: React.MouseEvent) => {
       if(e) e.stopPropagation();
       if(currentActiveImage) {
@@ -486,9 +498,43 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   }
 
   const confirmCrop = () => {
-      if(onBgTransformChange) {
-          // Pass absolute offset and scale directly to App for transform
-          onBgTransformChange(cropOffset.x, cropOffset.y, cropScale);
+      if(onBgTransformChange && cropContainerRef.current && cropImageRef.current) {
+          const img = cropImageRef.current;
+          
+          // Mavi Çerçeve Boyutları (Ekran boyutuna göre 16:9 oranlı hesaplama ile aynı olmalı)
+          // Aşağıdaki hesaplama CSS'teki w-[80vw] mantığına benzer
+          const frameWidth = Math.min(window.innerWidth * 0.8, 1280);
+          const frameHeight = frameWidth * (9/16);
+          
+          const canvas = document.createElement('canvas');
+          canvas.width = frameWidth;
+          canvas.height = frameHeight;
+          const ctx = canvas.getContext('2d');
+          
+          if (ctx) {
+              // Canvas'ı temizle
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              
+              // Resmi çiz
+              // Merkez noktasına translate et
+              ctx.translate(canvas.width / 2, canvas.height / 2);
+              
+              // Zoom ve Pan uygula
+              ctx.translate(cropOffset.x, cropOffset.y);
+              ctx.scale(cropScale, cropScale);
+              
+              // Resmin yüklendiğinden emin olun
+              if(img.complete) {
+                  const drawW = img.naturalWidth;
+                  const drawH = img.naturalHeight;
+                  // Natural boyutlarda çizip scale'i uyguluyoruz.
+                  ctx.drawImage(img, -drawW / 2, -drawH / 2);
+              }
+              
+              // Veriyi al
+              const dataUrl = canvas.toDataURL('image/png', 1.0);
+              onBgTransformChange(dataUrl); // Gizli galeriye kaydet
+          }
       }
       setShowCropper(false);
   };
@@ -539,21 +585,21 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         @keyframes marquee-scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
         .animate-marquee-loop { display: flex; animation: marquee-scroll 10s linear infinite; width: max-content; }
 
-        /* Deck Throw Animations (SOL KÖŞE TUTMALI) */
+        /* Deck Throw Animations */
         @keyframes deck-throw-next {
             0% { transform: rotate(0deg) translateY(0); z-index: 20; }
             50% { transform: rotate(-30deg) translateX(-60px) translateY(-20px); z-index: 20; opacity: 0.8; }
             51% { z-index: 0; }
             100% { transform: rotate(0deg) translate(0,0) scale(0.9); z-index: 0; opacity: 0.5; }
         }
-        @keyframes deck-arrive-from-back {
-            0% { transform: translateY(15px) scale(0.85); z-index: 0; opacity: 0; }
-            50% { opacity: 1; z-index: 20; }
-            100% { transform: translateY(0) scale(1); z-index: 20; opacity: 1; }
+        @keyframes deck-extract-from-back {
+            0% { transform: translateY(-20px) scale(0.85); z-index: 0; opacity: 0.5; }
+            40% { transform: translateY(-120px) translateX(-40px) rotate(-15deg) scale(0.9); z-index: 60; opacity: 1; }
+            100% { transform: translateY(0) translateX(0) rotate(0) scale(1); z-index: 60; opacity: 1; }
         }
 
         .anim-throw-next { animation: deck-throw-next 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; transform-origin: bottom left; }
-        .anim-arrive-from-back { animation: deck-arrive-from-back 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; transform-origin: bottom left; }
+        .anim-extract-from-back { animation: deck-extract-from-back 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; transform-origin: bottom left; }
 
         .deck-card {
             transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -597,7 +643,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
       <input type="file" accept="audio/*" ref={audioInputRef} onChange={handleAudioSelect} className="hidden" />
       <input type="file" accept="image/*" multiple ref={bgImageInputRef} onChange={handleBgImagesSelect} className="hidden" />
 
-      {/* ... (Music Player Code Unchanged) ... */}
+      {/* Music Player */}
       {showMusicPlayer && (
           <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-40 transition-all duration-700 ease-in-out ${musicPlayerClass}`}>
              <div 
@@ -663,7 +709,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                     onClick={(e) => { e.stopPropagation(); setShowMusicSettings(!showMusicSettings); }}
                     className={`absolute -right-3 -top-3 w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 shadow-md z-30 ${isLightMode ? 'bg-white text-black border border-black/10' : 'bg-black text-white border border-white/20'}`}
                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 0-2.83 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                  </button>
 
                  {showMusicSettings && (
@@ -691,7 +737,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           </div>
       )}
 
-      {/* ... (Modals Omitted) ... */}
+      {/* Image Preview Modal */}
       {showImageModal && pendingImage && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
           <div className="bg-[#111] border border-white/20 p-6 rounded-2xl max-w-sm w-full shadow-2xl animate-in zoom-in duration-300">
@@ -720,13 +766,11 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
             onWheel={handleDeckScroll}
           >
               <div className="relative w-full h-full perspective-[500px]">
-                  
                   {/* Deste Elemanları */}
                   {Array.from({ length: Math.min(bgImages.length, EXPAND_COUNT) }).map((_, i) => {
                       const imgIndex = (deckIndex + i) % bgImages.length;
                       const img = bgImages[imgIndex];
                       
-                      // COLLAPSED STATE STYLES
                       let collapsedBottom = 0;
                       let collapsedScale = 1;
                       let collapsedZ = 20 - i;
@@ -735,20 +779,26 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                       let animClass = "";
 
                       if (!isDeckExpanded) {
-                          if (i === 0) { // Active (Middle)
+                          if (i === 0) { // Active
                               collapsedZ = 20;
                               collapsedOpacity = 1;
                               if (animDirection === 'next') animClass = 'anim-throw-next';
-                              // Yukarı scroll (Prev) için: Yeni gelen (Index 0) kart arkadan/alttan öne gelir
-                              if (animDirection === 'prev') animClass = 'anim-arrive-from-back'; 
-                          } else if (i === 1) { // Next (Top peeking)
+                              if (animDirection === 'prev') {
+                                  animClass = 'anim-extract-from-back';
+                                  collapsedZ = 60; 
+                              }
+                          } else if (i === 1) { // Next
                               collapsedZ = 15;
                               collapsedScale = 0.95;
                               collapsedBottom = 4;
                               collapsedTransform = `translateY(-4px) translateX(2px) rotate(2deg) scale(0.95)`;
                               collapsedOpacity = 0.9;
-                          } else if (i === bgImages.length - 1) { 
-                              collapsedOpacity = 0;
+                              if (animDirection === 'prev') {
+                                  collapsedTransform = `translateY(0) translateX(0) rotate(0) scale(1)`;
+                                  collapsedBottom = 0;
+                                  collapsedOpacity = 1;
+                                  collapsedZ = 19; 
+                              }
                           } else {
                               collapsedOpacity = 0;
                           }
@@ -762,14 +812,12 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                           }
                       }
 
-                      // EXPANDED STATE STYLES
                       const expandedBottom = (CARD_HEIGHT + GAP) * i;
                       const expandedScale = 1;
                       const expandedOpacity = 1;
                       const expandedZ = 50 - i;
                       const expandedTransform = `translateY(0) scale(1)`;
 
-                      // MERGED STYLES
                       const finalBottom = isDeckExpanded ? expandedBottom : collapsedBottom;
                       const finalTransform = isDeckExpanded ? expandedTransform : collapsedTransform;
                       const finalOpacity = isDeckExpanded ? expandedOpacity : collapsedOpacity;
@@ -798,11 +846,11 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                                     onClick={(e) => { e.stopPropagation(); setDeckShowSettings(!deckShowSettings); setShowResetMenu(false); }}
                                     className="absolute top-1 right-1 w-4 h-4 bg-black/60 rounded-full flex items-center justify-center text-white/80 hover:text-white hover:bg-black/80 opacity-0 group-hover:opacity-100 transition-all duration-200 backdrop-blur-sm"
                                 >
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 0-2.83 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                                 </button>
                              )}
                              
-                             {/* Reset (Trash) Button - Added next to Config */}
+                             {/* Reset (Trash) Button */}
                              {i === 0 && !isDeckExpanded && (
                                 <button 
                                     onClick={openResetMenu}
@@ -812,7 +860,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                                 </button>
                              )}
 
-                             {/* Remove Button (Visible in Expanded Mode) */}
+                             {/* Remove Button */}
                              {isDeckExpanded && (
                                  <button
                                     onClick={(e) => { e.stopPropagation(); if(onRemoveBgImage) onRemoveBgImage(img); }}
@@ -835,7 +883,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                             <button onClick={(e) => { onBgImageStyleChange && onBgImageStyleChange('cover'); openCropper(e); }} className={`flex-1 text-[10px] py-1 px-1 rounded border transition-colors ${bgImageStyle === 'cover' ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Doldur</button>
                             {bgImageStyle === 'cover' && (
                                 <button onClick={(e) => openCropper(e)} className="w-6 flex items-center justify-center rounded border border-white/10 bg-white/5 hover:bg-white/20 text-white" title="Konumla">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 0-2.83 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                                 </button>
                             )}
                           </div>
@@ -882,7 +930,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
       {/* --- CROPPER MODAL (FULL SCREEN 16:9 RECT) --- */}
       {showCropper && cropImage && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black" onPointerDown={(e) => e.stopPropagation()}>
+          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black" onPointerDown={(e) => e.stopPropagation()}>
               <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-lg z-20 font-mono tracking-wider">
                  KONUMLANDIRMA MODU
               </div>
@@ -900,6 +948,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
               >
                   {/* The Image (Background) - Using transform match App.tsx */}
                   <img 
+                    ref={cropImageRef}
                     src={cropImage} 
                     alt="Target"
                     className="absolute max-w-none transition-transform duration-75"
@@ -940,8 +989,6 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           </div>
       )}
 
-      {/* ... (Ses Modal & Menu Kontrolleri Aynı Kalacak) ... */}
-      
       {/* Ses Yükleme Onay Modalı */}
       {showAudioModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
@@ -964,7 +1011,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         </div>
       )}
 
-      {/* --- MENU VE KONTROLLER --- */}
+      {/* --- SOL MENÜ VE KONTROLLER --- */}
 
       <div className={`absolute left-6 z-50 flex flex-col gap-4 transition-all duration-500 ease-in-out ${isWidgetMinimized ? 'top-32' : 'top-[230px]'} ${hideLeftClass}`} onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd} onPointerDown={stopProp}>
           <button onClick={() => onPresetChange(activePreset === 'electric' ? 'none' : 'electric')} className={`preset-btn preset-electric w-10 h-10 rounded-full border backdrop-blur-md flex items-center justify-center relative ${activePreset === 'electric' ? 'active' : ''} ${isLightMode ? 'border-black/20 bg-black/5 hover:bg-black/10' : 'border-white/20 bg-black/50 hover:bg-white/10'}`} title="Elektrik Efekti"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-cyan-400 icon-animate-wiggle"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></button>
@@ -989,7 +1036,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
       )}
       
       {isBgPaletteOpen && !isUIHidden && (
-          <div className="absolute bottom-24 right-4 z-50 origin-bottom-right oval-picker-container" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd} onPointerDown={stopProp}>
+          <div className="absolute bottom-24 right-4 z-[100] origin-bottom-right oval-picker-container" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd} onPointerDown={stopProp}>
               <div className={`backdrop-blur-xl border border-white/20 p-2 rounded-3xl shadow-2xl relative w-64 ${isLightMode ? 'bg-black/90' : 'bg-[#111]/90'}`}>
                   <div className="flex justify-between items-center px-3 py-1 border-b border-white/10 mb-2">
                       <span className="text-white/70 text-[10px] font-mono tracking-widest uppercase">BG Color VFX</span>
@@ -1027,13 +1074,12 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
 
       <div className={`absolute top-6 right-6 z-50 flex flex-col items-end gap-3 transition-transform duration-500 ${hideTopClass}`} onPointerDown={stopProp}>
         <div className="flex gap-2">
-            <button onClick={toggleShapeMenu} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border group ${isLightMode ? `border-black/20 text-black ${isShapeMenuOpen ? 'bg-black/20 scale-110 shadow-[0_0_15px_rgba(0,0,0,0.3)]' : 'bg-black/5 hover:bg-black/10'}` : `border-white/20 text-white ${isShapeMenuOpen ? 'bg-white/20 scale-110 shadow-[0_0_15px_rgba(255,255,255,0.3)]' : 'bg-white/5 hover:bg-white/10'}`}`} title="Şekil Değiştir"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-animate-wiggle"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg></button>
-            <button onClick={toggleThemeMenu} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border group ${isLightMode ? `border-black/20 text-black ${isThemeMenuOpen ? 'bg-black/20 scale-110 shadow-[0_0_15px_rgba(0,0,0,0.3)]' : 'bg-black/5 hover:bg-black/10'}` : `border-white/20 text-white ${isThemeMenuOpen ? 'bg-white/20 scale-110 shadow-[0_0_15px_rgba(255,255,255,0.3)]' : 'bg-white/5 hover:bg-white/10'}`}`} title="Tema ve Arka Plan"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-animate-spin"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path><path d="M16 16.5l-3 3"></path><path d="M11 11.5l-3 3"></path></svg></button>
-            <button onClick={() => { setIsSettingsOpen(!isSettingsOpen); setIsThemeMenuOpen(false); setIsShapeMenuOpen(false); setIsBgPaletteOpen(false); }} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border group ${isLightMode ? `border-black/20 text-black ${isSettingsOpen ? 'bg-black/20 rotate-90' : 'bg-black/5 hover:bg-black/10'}` : `border-white/20 text-white ${isSettingsOpen ? 'bg-white/20 rotate-90' : 'bg-white/5 hover:bg-white/10'}`}`} title="Konfigürasyon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-animate-spin"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+            <button onClick={(e) => { e.stopPropagation(); toggleShapeMenu(); }} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border group ${isLightMode ? `border-black/20 text-black ${isShapeMenuOpen ? 'bg-black/20 scale-110 shadow-[0_0_15px_rgba(0,0,0,0.3)]' : 'bg-black/5 hover:bg-black/10'}` : `border-white/20 text-white ${isShapeMenuOpen ? 'bg-white/20 scale-110 shadow-[0_0_15px_rgba(255,255,255,0.3)]' : 'bg-white/5 hover:bg-white/10'}`}`} title="Şekil Değiştir"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-animate-wiggle"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg></button>
+            <button onClick={(e) => { e.stopPropagation(); toggleThemeMenu(); }} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border group ${isLightMode ? `border-black/20 text-black ${isThemeMenuOpen ? 'bg-black/20 scale-110 shadow-[0_0_15px_rgba(0,0,0,0.3)]' : 'bg-black/5 hover:bg-black/10'}` : `border-white/20 text-white ${isThemeMenuOpen ? 'bg-white/20 scale-110 shadow-[0_0_15px_rgba(255,255,255,0.3)]' : 'bg-white/5 hover:bg-white/10'}`}`} title="Tema ve Arka Plan"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-animate-spin"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path><path d="M16 16.5l-3 3"></path><path d="M11 11.5l-3 3"></path></svg></button>
+            <button onClick={(e) => { e.stopPropagation(); setIsSettingsOpen(!isSettingsOpen); setIsThemeMenuOpen(false); setIsShapeMenuOpen(false); setIsBgPaletteOpen(false); }} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border group ${isLightMode ? `border-black/20 text-black ${isSettingsOpen ? 'bg-black/20 rotate-90' : 'bg-black/5 hover:bg-black/10'}` : `border-white/20 text-white ${isSettingsOpen ? 'bg-white/20 rotate-90' : 'bg-white/5 hover:bg-white/10'}`}`} title="Konfigürasyon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="icon-animate-spin"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
         </div>
 
-        {/* ... (Theme and Shape menus omitted for brevity) ... */}
-        <div className={`absolute top-12 right-24 flex flex-col gap-2 items-end ${isShapeMenuOpen ? 'shape-menu-open pointer-events-auto' : 'pointer-events-none'}`}>
+        <div className={`absolute top-12 right-24 z-[60] flex flex-col gap-2 items-end ${isShapeMenuOpen ? 'shape-menu-open pointer-events-auto' : 'pointer-events-none'}`}>
              <button onClick={() => handleShapeSelect('sphere')} className={`theme-menu-item item-1 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/60 backdrop-blur text-white hover:scale-110 ${currentShape === 'sphere' ? 'ring-2 ring-blue-400 bg-blue-500/30' : ''}`} title="Küre"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle></svg></button>
              <button onClick={() => handleShapeSelect('cube')} className={`theme-menu-item item-2 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/60 backdrop-blur text-white hover:scale-110 ${currentShape === 'cube' ? 'ring-2 ring-blue-400 bg-blue-500/30' : ''}`} title="Küp"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg></button>
              <button onClick={() => handleShapeSelect('prism')} className={`theme-menu-item item-3 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/60 backdrop-blur text-white hover:scale-110 ${currentShape === 'prism' ? 'ring-2 ring-blue-400 bg-blue-500/30' : ''}`} title="Üçgen Prizma"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path></svg></button>
@@ -1041,7 +1087,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
              <button onClick={() => handleShapeSelect('spiky')} className={`theme-menu-item item-5 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/60 backdrop-blur text-white hover:scale-110 ${currentShape === 'spiky' ? 'ring-2 ring-blue-400 bg-blue-500/30' : ''}`} title="Dikenli Küre"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg></button>
         </div>
 
-        <div className={`absolute top-12 right-12 flex flex-col gap-2 items-end ${isThemeMenuOpen ? 'theme-menu-open pointer-events-auto' : 'pointer-events-none'}`}>
+        <div className={`absolute top-12 right-12 z-[60] flex flex-col gap-2 items-end ${isThemeMenuOpen ? 'theme-menu-open pointer-events-auto' : 'pointer-events-none'}`}>
              <button onClick={() => { onBgModeChange('dark'); setIsThemeMenuOpen(false); }} className={`theme-menu-item item-1 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/80 text-white hover:scale-110 ${bgMode === 'dark' ? 'ring-2 ring-white' : ''}`} title="Karanlık Mod"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg></button>
              <button onClick={() => { onBgModeChange('light'); setIsThemeMenuOpen(false); }} className={`theme-menu-item item-2 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-white text-black hover:scale-110 ${bgMode === 'light' ? 'ring-2 ring-yellow-400' : ''}`} title="Aydınlık Mod"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg></button>
              <button onClick={() => { bgImageInputRef.current?.click(); }} className={`theme-menu-item item-3 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gray-800 text-white hover:scale-110 ${bgMode === 'image' ? 'ring-2 ring-blue-400' : ''}`} title="Arka Plan Resmi"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></button>
@@ -1049,50 +1095,134 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
              <button onClick={() => { onBgModeChange('gradient'); setIsThemeMenuOpen(false); }} className={`theme-menu-item item-5 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-[linear-gradient(45deg,red,blue)] text-white hover:scale-110 ${bgMode === 'gradient' ? 'ring-2 ring-purple-400' : ''}`} title="Disko Modu"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></button>
              <button onClick={() => { onBgModeChange('auto'); setIsThemeMenuOpen(false); }} className={`theme-menu-item item-6 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gray-900 text-white hover:scale-110 ${bgMode === 'auto' ? 'ring-2 ring-green-400' : ''}`} title="Otomatik Döngü"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg></button>
         </div>
+      </div>
 
-        {isSettingsOpen && (
-          <div className="absolute top-12 right-0 w-64 bg-[#111]/90 backdrop-blur-xl border border-white/10 rounded-xl p-5 shadow-2xl origin-top-right menu-animate" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>
-            <h4 className="text-white/80 text-xs font-mono uppercase tracking-widest mb-4 border-b border-white/10 pb-2 vfx-item delay-1">Konfigürasyon</h4>
-            {isDrawing && (
-                <div className="mb-5 border-b border-white/10 pb-4 space-y-4 vfx-item delay-2">
-                    <div>
-                        <div className="flex justify-between text-xs text-yellow-400 mb-1 font-bold"><span>Fırça Kalınlığı</span><span>{brushSize}px</span></div>
-                        <input type="range" min="1" max="100" value={brushSize} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onBrushSizeChange(parseInt(e.target.value))} className="w-full h-1.5 bg-yellow-500/30 rounded-lg appearance-none cursor-pointer accent-yellow-400 hover:accent-yellow-200"/>
-                    </div>
-                    <div>
-                        <div className="flex justify-between text-xs text-blue-400 mb-2 font-bold"><span>Tuval Yönü (90° Çevir)</span></div>
-                        <div className="flex gap-2">
-                             <button onClick={onRotateX} className="flex-1 py-1 bg-white/10 hover:bg-white/20 border border-white/20 rounded text-[10px] text-white">X Ekseni</button>
-                             <button onClick={onRotateY} className="flex-1 py-1 bg-white/10 hover:bg-white/20 border border-white/20 rounded text-[10px] text-white">Y Ekseni</button>
-                             <button onClick={onRotateZ} className="flex-1 py-1 bg-white/10 hover:bg-white/20 border border-white/20 rounded text-[10px] text-white">Z Ekseni</button>
+      {isSettingsOpen && (
+        <div className={`absolute top-20 right-6 z-[60] w-80 backdrop-blur-2xl border border-white/20 rounded-3xl p-6 shadow-[0_30px_60px_rgba(0,0,0,0.8)] animate-config-pop origin-top-right cursor-default transition-colors duration-300 ${isLightMode ? 'bg-white/80 text-black border-black/10' : 'bg-[#0a0a0a]/90 text-white border-white/10'}`} onPointerDown={stopProp}>
+            {/* Header */}
+            <div className={`flex justify-between items-center border-b pb-3 mb-4 ${isLightMode ? 'border-black/10' : 'border-white/10'}`}>
+                <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${isLightMode ? 'bg-black' : 'bg-white'} animate-pulse`}></div>
+                    <h4 className="text-sm font-bold tracking-wide font-mono uppercase">Sistem Ayarları</h4>
+                </div>
+                <button onClick={() => setIsSettingsOpen(false)} className={`p-1 rounded-full transition-colors ${isLightMode ? 'hover:bg-black/10' : 'hover:bg-white/10'}`}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                {/* Group 1: Fizik & Etkileşim */}
+                <div>
+                    <h5 className={`text-[10px] font-bold uppercase mb-3 opacity-60 flex items-center gap-2 ${isLightMode ? 'text-black' : 'text-white'}`}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>
+                        Fizik Motoru
+                    </h5>
+                    
+                    <div className="space-y-4">
+                        {/* Repulsion Strength */}
+                        <div className="group">
+                            <div className="flex justify-between mb-1.5">
+                                <span className="text-xs font-medium opacity-80">İtme Kuvveti</span>
+                                <span className="text-xs font-mono font-bold text-blue-500">%{repulsionStrength}</span>
+                            </div>
+                            <div className="relative h-1.5 w-full rounded-full bg-gray-500/20 overflow-hidden">
+                                <div className="absolute top-0 left-0 h-full bg-blue-500 rounded-full transition-all duration-300" style={{ width: `${repulsionStrength}%` }}></div>
+                                <input type="range" min="0" max="100" value={repulsionStrength} onChange={(e) => onRepulsionChange(parseInt(e.target.value))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                            </div>
+                        </div>
+
+                        {/* Repulsion Radius */}
+                        <div className="group">
+                            <div className="flex justify-between mb-1.5">
+                                <span className="text-xs font-medium opacity-80">Etki Alanı</span>
+                                <span className="text-xs font-mono font-bold text-purple-500">%{repulsionRadius}</span>
+                            </div>
+                            <div className="relative h-1.5 w-full rounded-full bg-gray-500/20 overflow-hidden">
+                                <div className="absolute top-0 left-0 h-full bg-purple-500 rounded-full transition-all duration-300" style={{ width: `${repulsionRadius}%` }}></div>
+                                <input type="range" min="10" max="100" value={repulsionRadius} onChange={(e) => onRadiusChange(parseInt(e.target.value))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                            </div>
                         </div>
                     </div>
                 </div>
-            )}
-            <div className="mb-5 vfx-item delay-3"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>İmleç Gücü</span><span>{repulsionStrength}%</span></div><input type="range" min="0" max="100" value={repulsionStrength} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onRepulsionChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
-            <div className="mb-5 vfx-item delay-4"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>İmleç Çapı</span><span>{repulsionRadius}%</span></div><input type="range" min="0" max="100" value={repulsionRadius} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onRadiusChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
-            <div className="mb-5 vfx-item delay-5">
-              <div className="flex justify-between text-xs text-gray-400 mb-1"><span>Partikül Sayısı</span></div>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={() => handleCountChange(particleCount - 2000)} onPointerDown={stopProp} onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd} className="w-8 h-8 rounded bg-white/10 hover:bg-white/20 text-white flex items-center justify-center border border-white/10">-</button>
-                <input type="number" min="22000" max="50000" step="2000" value={particleCount} onChange={(e) => handleCountChange(parseInt(e.target.value) || 22000)} className="flex-1 h-8 bg-black/50 border border-white/10 rounded text-center text-white text-xs font-mono focus:outline-none focus:border-white/40"/>
-                <button type="button" onClick={() => handleCountChange(particleCount + 2000)} onPointerDown={stopProp} onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd} className="w-8 h-8 rounded bg-white/10 hover:bg-white/20 text-white flex items-center justify-center border border-white/10">+</button>
-              </div>
-              <div className="text-[10px] text-gray-600 mt-1 text-center">Max: 50,000</div>
-            </div>
-            <div className="mb-5 vfx-item delay-6"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>Model Sıkılığı</span><span>{modelDensity}%</span></div><input type="range" min="0" max="100" value={modelDensity} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onModelDensityChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
-            {hasImage && !isDrawing && (
-                <div className="mb-5 border-t border-white/10 pt-4 vfx-item delay-7">
-                    <div className="flex justify-between text-xs text-blue-300 mb-1"><span>Derinlik Etkisi</span><span>{Math.round(depthIntensity * 10)}%</span></div>
-                    <input type="range" min="0" max="10" step="0.1" value={depthIntensity} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onDepthChange(parseFloat(e.target.value))} className="w-full h-1.5 bg-blue-500/30 rounded-lg appearance-none cursor-pointer accent-blue-400 hover:accent-blue-200"/>
-                </div>
-            )}
-            <div className="mb-2 vfx-item delay-7"><div className="flex justify-between text-xs text-gray-400 mb-1"><span>Partikül Boyutu</span><span>{particleSize}</span></div><input type="range" min="1" max="100" value={particleSize} onPointerDown={onInteractionStart} onPointerUp={onInteractionEnd} onChange={(e) => onParticleSizeChange(parseInt(e.target.value))} className="w-full h-1.5 bg-white/20 rounded-lg appearance-none cursor-pointer accent-white hover:accent-gray-300"/></div>
-          </div>
-        )}
-      </div>
 
-      <div className="absolute bottom-10 left-0 w-full flex justify-center items-center pointer-events-none z-50 px-4">
+                {/* Group 2: Model Yapısı */}
+                <div>
+                    <h5 className={`text-[10px] font-bold uppercase mb-3 opacity-60 flex items-center gap-2 ${isLightMode ? 'text-black' : 'text-white'}`}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+                        Partikül Yapısı
+                    </h5>
+
+                    <div className="space-y-4">
+                        {/* Count */}
+                        <div className="group">
+                            <div className="flex justify-between mb-1.5">
+                                <span className="text-xs font-medium opacity-80">Yoğunluk (Adet)</span>
+                                <span className="text-xs font-mono font-bold text-green-500">{(particleCount / 1000).toFixed(1)}k</span>
+                            </div>
+                             <div className="relative h-1.5 w-full rounded-full bg-gray-500/20 overflow-hidden">
+                                <div className="absolute top-0 left-0 h-full bg-green-500 rounded-full transition-all duration-300" style={{ width: `${(particleCount - 20000) / (60000 - 20000) * 100}%` }}></div>
+                                <input type="range" min="20000" max="60000" step="1000" value={particleCount} onChange={(e) => handleCountChange(parseInt(e.target.value))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                            </div>
+                        </div>
+
+                        {/* Size */}
+                        <div className="group">
+                            <div className="flex justify-between mb-1.5">
+                                <span className="text-xs font-medium opacity-80">Boyut</span>
+                                <span className="text-xs font-mono font-bold text-yellow-500">{particleSize}px</span>
+                            </div>
+                            <div className="relative h-1.5 w-full rounded-full bg-gray-500/20 overflow-hidden">
+                                <div className="absolute top-0 left-0 h-full bg-yellow-500 rounded-full transition-all duration-300" style={{ width: `${(particleSize / 50) * 100}%` }}></div>
+                                <input type="range" min="1" max="50" value={particleSize} onChange={(e) => onParticleSizeChange(parseInt(e.target.value))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                            </div>
+                        </div>
+                        
+                        {/* Model Density (Geri Getirilen Özellik) */}
+                        <div className="group">
+                            <div className="flex justify-between mb-1.5">
+                                <span className="text-xs font-medium opacity-80">Form Sıkılığı</span>
+                                <span className="text-xs font-mono font-bold text-orange-500">%{modelDensity}</span>
+                            </div>
+                            <div className="relative h-1.5 w-full rounded-full bg-gray-500/20 overflow-hidden">
+                                <div className="absolute top-0 left-0 h-full bg-orange-500 rounded-full transition-all duration-300" style={{ width: `${modelDensity}%` }}></div>
+                                <input type="range" min="0" max="100" value={modelDensity} onChange={(e) => onModelDensityChange(parseInt(e.target.value))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Group 3: Görsel Efektler (Depth) */}
+                {hasImage && (
+                    <div>
+                        <h5 className={`text-[10px] font-bold uppercase mb-3 opacity-60 flex items-center gap-2 ${isLightMode ? 'text-black' : 'text-white'}`}>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                            Görsel Derinlik
+                        </h5>
+                        <div className="group">
+                            <div className="flex justify-between mb-1.5">
+                                <span className="text-xs font-medium opacity-80">3D Kabartma</span>
+                                <span className="text-xs font-mono font-bold text-red-500">%{Math.round(depthIntensity * 10)}</span>
+                            </div>
+                            <div className="relative h-1.5 w-full rounded-full bg-gray-500/20 overflow-hidden">
+                                <div className="absolute top-0 left-0 h-full bg-red-500 rounded-full transition-all duration-300" style={{ width: `${(depthIntensity / 20) * 100}%` }}></div>
+                                <input type="range" min="0" max="20" value={depthIntensity} onChange={(e) => onDepthChange(parseInt(e.target.value))} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            <div className={`mt-6 pt-4 border-t flex justify-end ${isLightMode ? 'border-black/10' : 'border-white/10'}`}>
+                <button onClick={onResetAll} className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-red-600 hover:bg-red-500 transition-colors shadow-lg shadow-red-900/30 flex items-center gap-2">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg> 
+                    SIFIRLA
+                </button>
+            </div>
+        </div>
+      )}
+
+      {/* --- ALT MENÜ (YENİDEN EKLENDİ) --- */}
+      <div className="absolute bottom-10 left-0 w-full flex justify-center items-center pointer-events-none z-[100] px-4">
         <div className={`pointer-events-auto w-full max-w-lg relative flex gap-2 items-center transition-transform duration-500 ${hideBottomClass}`} onPointerDown={stopProp}>
           {isPaletteOpen && (
             <div className="absolute bottom-full right-0 translate-x-2 mb-2 bg-black/80 backdrop-blur-xl border border-white/20 p-2 rounded-xl shadow-2xl animate-in fade-in zoom-in duration-200 origin-bottom-right" onMouseEnter={() => onInteractionStart()} onMouseLeave={() => { if(!isDrawing) onColorChange(savedColor); onInteractionEnd(); }}>
