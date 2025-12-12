@@ -11,8 +11,12 @@ const App: React.FC = () => {
   // Arka Plan State'leri
   const [bgMode, setBgMode] = useState<BackgroundMode>('dark');
   const [customBgColor, setCustomBgColor] = useState<string>('#000000');
-  const [bgImage, setBgImage] = useState<string | null>(null);
+  
+  // Çoklu Arka Plan Resmi Yönetimi
+  const [bgImages, setBgImages] = useState<string[]>([]); // Yüklü resimler listesi
+  const [bgImage, setBgImage] = useState<string | null>(null); // Aktif resim
   const [bgImageStyle, setBgImageStyle] = useState<BgImageStyle>('cover');
+  const [bgImagePosition, setBgImagePosition] = useState<string>('center center'); // Crop/Position
 
   // Widget State
   const [isWidgetMinimized, setIsWidgetMinimized] = useState<boolean>(false);
@@ -96,10 +100,41 @@ const App: React.FC = () => {
       }
   };
 
-  const handleBgImageConfirm = (img: string, style: BgImageStyle) => {
+  const handleBgImagesAdd = (newImages: string[]) => {
+      setBgImages(prev => [...prev, ...newImages]);
+      // Eğer hiç resim seçili değilse ve yeni resim eklendiyse, ilkini seç
+      if (!bgImage && newImages.length > 0) {
+          setBgImage(newImages[0]);
+          setBgMode('image');
+          setBgImagePosition('center center');
+      }
+  };
+
+  const handleBgImageSelectFromDeck = (img: string) => {
       setBgImage(img);
-      setBgImageStyle(style);
       setBgMode('image');
+      // Her resim değişiminde pozisyonu sıfırla veya hafızada tut (şimdilik sıfırla)
+      // setBgImagePosition('center center'); 
+  };
+
+  const handleRemoveBgImage = (imgToRemove: string) => {
+      setBgImages(prev => {
+          const newList = prev.filter(img => img !== imgToRemove);
+          // Eğer aktif resim silindiyse, bir öncekini veya default'u seç
+          if (bgImage === imgToRemove) {
+              if (newList.length > 0) {
+                  setBgImage(newList[0]);
+              } else {
+                  setBgImage(null);
+                  setBgMode('dark');
+              }
+          }
+          return newList;
+      });
+  };
+
+  const handleBgImageStyleChange = (style: BgImageStyle) => {
+      setBgImageStyle(style);
   };
 
   const handleTextSubmit = (text: string) => {
@@ -110,7 +145,7 @@ const App: React.FC = () => {
     setIsDrawing(false);
     setCanvasRotation([0, 0, 0]);
     setCameraResetTrigger(prev => prev + 1);
-    setIsSceneVisible(true); // Yeni içerik gelince görünür yap
+    setIsSceneVisible(true); 
   };
 
   const handleDualImageUpload = (imgXY: string | null, imgYZ: string | null, useOriginalColors: boolean, keepRotation = false) => {
@@ -119,7 +154,7 @@ const App: React.FC = () => {
     setUseImageColors(useOriginalColors);
     setCurrentText('');
     setActivePreset('none');
-    setIsSceneVisible(true); // Yeni içerik gelince görünür yap
+    setIsSceneVisible(true);
     
     if (isDrawing) {
         setDepthIntensity(0); 
@@ -175,7 +210,7 @@ const App: React.FC = () => {
     setAudioMode(mode);
     setAudioUrl(url);
     setAudioTitle(title || null);
-    setIsPlaying(true); // Yeni müzik yüklendiğinde otomatik başlat
+    setIsPlaying(true); 
   };
 
   const handleClearCanvas = () => {
@@ -237,8 +272,11 @@ const App: React.FC = () => {
               <img 
                 src={bgImage} 
                 alt="background" 
-                className="w-full h-full opacity-100 transition-opacity duration-500"
-                style={{ objectFit: bgImageStyle }}
+                className="w-full h-full opacity-100 transition-all duration-700"
+                style={{ 
+                    objectFit: bgImageStyle,
+                    objectPosition: bgImagePosition 
+                }}
               />
           )}
 
@@ -338,7 +376,7 @@ const App: React.FC = () => {
         onClearCanvas={handleClearCanvas}
         bgMode={bgMode}
         onBgModeChange={handleBgModeChange}
-        onBgImageConfirm={handleBgImageConfirm}
+        onBgImageConfirm={(img, style) => { /* Deprecated */ }}
         customBgColor={customBgColor}
         currentShape={currentShape}
         onShapeChange={handleShapeChange}
@@ -347,6 +385,13 @@ const App: React.FC = () => {
         onToggleUI={() => setIsUIHidden(!isUIHidden)}
         isSceneVisible={isSceneVisible}
         onToggleScene={() => setIsSceneVisible(!isSceneVisible)}
+        bgImages={bgImages}
+        onBgImagesAdd={handleBgImagesAdd}
+        onBgImageSelect={handleBgImageSelectFromDeck}
+        onBgImageStyleChange={handleBgImageStyleChange}
+        bgImageStyle={bgImageStyle}
+        onRemoveBgImage={handleRemoveBgImage}
+        onBgPositionChange={setBgImagePosition}
       />
     </div>
   );

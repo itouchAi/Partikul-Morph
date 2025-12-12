@@ -77,6 +77,15 @@ interface UIOverlayProps {
   // Sahne Gizleme
   isSceneVisible?: boolean;
   onToggleScene?: () => void;
+
+  // Yeni Background Deck Props
+  bgImages?: string[];
+  onBgImagesAdd?: (images: string[]) => void;
+  onBgImageSelect?: (img: string) => void;
+  onBgImageStyleChange?: (style: BgImageStyle) => void;
+  bgImageStyle?: BgImageStyle;
+  onRemoveBgImage?: (img: string) => void;
+  onBgPositionChange?: (pos: string) => void;
 }
 
 export const UIOverlay: React.FC<UIOverlayProps> = ({ 
@@ -129,7 +138,14 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   isUIHidden,
   onToggleUI,
   isSceneVisible = true,
-  onToggleScene
+  onToggleScene,
+  bgImages = [],
+  onBgImagesAdd,
+  onBgImageSelect,
+  onBgImageStyleChange,
+  bgImageStyle = 'cover',
+  onRemoveBgImage,
+  onBgPositionChange
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
@@ -143,9 +159,6 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   const [showImageModal, setShowImageModal] = useState(false);
   const [showAudioModal, setShowAudioModal] = useState(false);
   
-  const [showBgSettingsModal, setShowBgSettingsModal] = useState(false);
-  const [pendingBgImage, setPendingBgImage] = useState<string | null>(null);
-  const [selectedBgStyle, setSelectedBgStyle] = useState<BgImageStyle>('cover');
   const [useOriginalImageColors, setUseOriginalImageColors] = useState(true);
 
   // Müzik Çalar Ayarları
@@ -155,14 +168,32 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   const [musicItalic, setMusicItalic] = useState(false);
   const [musicShowInCleanMode, setMusicShowInCleanMode] = useState(false);
 
+  // Background Deck State
+  const [deckIndex, setDeckIndex] = useState(0);
+  const [deckShowSettings, setDeckShowSettings] = useState(false);
+  const [deckHideInCleanMode, setDeckHideInCleanMode] = useState(false);
+  const [animDirection, setAnimDirection] = useState<'next' | 'prev' | null>(null);
+  
+  // Expanded Deck Mode (Right Click)
+  const [isDeckExpanded, setIsDeckExpanded] = useState(false);
+
+  // Cropper Modal State
+  const [showCropper, setShowCropper] = useState(false);
+  const [cropImage, setCropImage] = useState<string | null>(null);
+  const [cropPosition, setCropPosition] = useState({ x: 50, y: 50 }); // % value
+  const [isDraggingCrop, setIsDraggingCrop] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [cropZoom, setCropZoom] = useState(1);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const bgImageInputRef = useRef<HTMLInputElement>(null);
+  const cropRef = useRef<HTMLDivElement>(null);
   
   const [pendingImage, setPendingImage] = useState<string | null>(null);
 
   const isLightMode = bgMode === 'light';
-  const isAnyMenuOpen = isSettingsOpen || isThemeMenuOpen || isShapeMenuOpen || isBgPaletteOpen || isPaletteOpen || showMusicSettings;
+  const isAnyMenuOpen = isSettingsOpen || isThemeMenuOpen || isShapeMenuOpen || isBgPaletteOpen || isPaletteOpen || showMusicSettings || deckShowSettings;
 
   const closeAllMenus = () => {
     setIsSettingsOpen(false);
@@ -171,6 +202,11 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
     setIsBgPaletteOpen(false);
     setIsPaletteOpen(false);
     setShowMusicSettings(false);
+    setDeckShowSettings(false);
+    
+    // Expand modunu kapat
+    if (isDeckExpanded) setIsDeckExpanded(false);
+    
     onInteractionEnd();
   };
 
@@ -179,6 +215,16 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         closeAllMenus();
     }
   }, [isDrawing]);
+
+  // Preload Images
+  useEffect(() => {
+      if (bgImages && bgImages.length > 0) {
+          bgImages.forEach(src => {
+              const img = new Image();
+              img.src = src;
+          });
+      }
+  }, [bgImages]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
@@ -244,29 +290,24 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleBgImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-              if (event.target?.result) {
-                  setPendingBgImage(event.target.result as string);
-                  setSelectedBgStyle('cover'); 
-                  setShowBgSettingsModal(true);
-                  setIsThemeMenuOpen(false);
-                  onInteractionStart();
-              }
-          };
-          reader.readAsDataURL(file);
+  const handleBgImagesSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files;
+      if (files && files.length > 0) {
+          const promises = Array.from(files).map((file: File) => {
+              return new Promise<string>((resolve) => {
+                  const reader = new FileReader();
+                  reader.onload = (e) => resolve(e.target?.result as string);
+                  reader.readAsDataURL(file);
+              });
+          });
+
+          Promise.all(promises).then(images => {
+              if (onBgImagesAdd) onBgImagesAdd(images);
+              setIsThemeMenuOpen(false);
+              onInteractionEnd();
+          });
       }
       if (bgImageInputRef.current) bgImageInputRef.current.value = '';
-  }
-
-  const confirmBgImage = () => {
-      if (pendingBgImage) onBgImageConfirm(pendingBgImage, selectedBgStyle);
-      setShowBgSettingsModal(false);
-      setPendingBgImage(null);
-      onInteractionEnd();
   }
 
   const handleAudioSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -297,7 +338,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   };
 
   const cancelDrawing = () => onResetAll();
-  const stopProp = (e: React.PointerEvent | React.MouseEvent | React.TouchEvent) => e.stopPropagation();
+  const stopProp = (e: React.PointerEvent | React.MouseEvent | React.TouchEvent | React.WheelEvent) => e.stopPropagation();
 
   const toggleThemeMenu = () => {
       setIsThemeMenuOpen(!isThemeMenuOpen);
@@ -313,13 +354,6 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
       setIsBgPaletteOpen(false);
   }
 
-  const bgStyleLabels: Record<BgImageStyle, string> = {
-      'cover': 'KAPLA',
-      'contain': 'SIĞDIR',
-      'fill': 'DOLDUR',
-      'none': 'YOK'
-  };
-
   const hideTopClass = isUIHidden ? "-translate-y-[200%] opacity-0 pointer-events-none" : "translate-y-0 opacity-100";
   const hideBottomClass = isUIHidden ? "translate-y-[200%] opacity-0 pointer-events-none" : "translate-y-0 opacity-100";
   const hideLeftClass = isUIHidden ? "-translate-x-[200%] opacity-0 pointer-events-none" : "translate-x-0 opacity-100";
@@ -329,75 +363,184 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   const hideMusicPlayer = isUIHidden && !musicShowInCleanMode;
   const musicPlayerClass = hideMusicPlayer ? "-translate-y-[200%] opacity-0 pointer-events-none" : "translate-y-0 opacity-100";
 
+  // --- Background Deck Logic ---
+  
+  const handleDeckContextMenu = (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDeckExpanded(!isDeckExpanded);
+  };
+
+  const handleCardClick = (e: React.MouseEvent, img: string) => {
+      e.stopPropagation();
+      if (onBgImageSelect) onBgImageSelect(img);
+      if (isDeckExpanded) setIsDeckExpanded(false);
+  };
+
+  const handleDeckScroll = (e: React.WheelEvent) => {
+      e.stopPropagation();
+      if (bgImages.length <= 1) return;
+      
+      const direction = e.deltaY > 0 ? 'next' : 'prev';
+      
+      setAnimDirection(direction);
+
+      setTimeout(() => {
+          setDeckIndex(prev => {
+              let nextIdx = prev + (direction === 'next' ? 1 : -1);
+              if (nextIdx < 0) nextIdx = bgImages.length - 1;
+              if (nextIdx >= bgImages.length) nextIdx = 0;
+              return nextIdx;
+          });
+          setAnimDirection(null);
+      }, 400); 
+  };
+
+  // Helper to get relative index images
+  const getDeckImage = (offset: number) => {
+      if (bgImages.length === 0) return null;
+      let idx = (deckIndex + offset) % bgImages.length;
+      if (idx < 0) idx += bgImages.length;
+      return bgImages[idx];
+  };
+
+  // Deck Visibility in Clean Mode Logic
+  const shouldHideDeck = isUIHidden && deckHideInCleanMode;
+  const deckClass = shouldHideDeck ? "translate-y-[200%] opacity-0 pointer-events-none" : "translate-y-0 opacity-100";
+
+  // Expanded View Constants
+  const EXPAND_COUNT = 6;
+  const CARD_HEIGHT = 64; // h-16 = 64px
+  const GAP = 2;
+
+  const currentActiveImage = getDeckImage(0);
+
+  // --- CROPPER LOGIC ---
+  const openCropper = (e?: React.MouseEvent) => {
+      if(e) e.stopPropagation();
+      if(currentActiveImage) {
+          setCropImage(currentActiveImage);
+          setShowCropper(true);
+          setDeckShowSettings(false);
+      }
+  }
+
+  const handleCropMouseDown = (e: React.MouseEvent) => {
+      setIsDraggingCrop(true);
+      setDragStart({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleCropMouseMove = (e: React.MouseEvent) => {
+      if (!isDraggingCrop) return;
+      const dx = e.clientX - dragStart.x;
+      const dy = e.clientY - dragStart.y;
+      
+      // Hassasiyet faktörü
+      const sensitivity = 0.2 / cropZoom; 
+      
+      setCropPosition(prev => ({
+          x: Math.max(0, Math.min(100, prev.x - dx * sensitivity)),
+          y: Math.max(0, Math.min(100, prev.y - dy * sensitivity))
+      }));
+      setDragStart({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleCropMouseUp = () => {
+      setIsDraggingCrop(false);
+  };
+
+  const handleCropWheel = (e: React.WheelEvent) => {
+      e.stopPropagation();
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      setCropZoom(prev => Math.max(1, Math.min(3, prev + delta)));
+  }
+
+  const confirmCrop = () => {
+      if(onBgPositionChange) {
+          onBgPositionChange(`${cropPosition.x}% ${cropPosition.y}%`);
+      }
+      setShowCropper(false);
+  };
+
   return (
     <>
       <style>{`
+        /* Animasyonlar aynı kalıyor... */
         @keyframes electric-pulse { 0% { box-shadow: 0 0 5px #0ff; border-color: #0ff; } 50% { box-shadow: 0 0 20px #0ff, 0 0 10px #fff; border-color: #fff; } 100% { box-shadow: 0 0 5px #0ff; border-color: #0ff; } }
         @keyframes fire-burn { 0% { box-shadow: 0 0 5px #f00; border-color: #f00; background: rgba(255,0,0,0.1); } 50% { box-shadow: 0 -5px 20px #ff0, 0 0 10px #f00; border-color: #ff0; background: rgba(255,50,0,0.3); } 100% { box-shadow: 0 0 5px #f00; border-color: #f00; background: rgba(255,0,0,0.1); } }
         @keyframes water-flow { 0% { box-shadow: 0 0 5px #00f; border-color: #00f; } 50% { box-shadow: 0 5px 15px #0af; border-color: #0af; } 100% { box-shadow: 0 0 5px #00f; border-color: #00f; } }
         @keyframes mercury-blob { 0% { transform: scale(1); border-color: #aaa; background: rgba(200,200,200,0.2); } 50% { transform: scale(1.1); border-color: #fff; background: rgba(255,255,255,0.4); } 100% { transform: scale(1); border-color: #aaa; background: rgba(200,200,200,0.2); } }
         @keyframes disco-spin { 0% { border-color: #f00; box-shadow: 0 0 10px #f00; } 20% { border-color: #ff0; box-shadow: 0 0 10px #ff0; } 40% { border-color: #0f0; box-shadow: 0 0 10px #0f0; } 60% { border-color: #0ff; box-shadow: 0 0 10px #0ff; } 80% { border-color: #00f; box-shadow: 0 0 10px #00f; } 100% { border-color: #f0f; box-shadow: 0 0 10px #f0f; } }
-        .preset-btn { transition: all 0.3s ease; }
-        .preset-btn:hover { transform: scale(1.1); }
-        .preset-electric:hover, .preset-electric.active { animation: electric-pulse 0.5s infinite; }
-        .preset-fire:hover, .preset-fire.active { animation: fire-burn 1s infinite; }
-        .preset-water:hover, .preset-water.active { animation: water-flow 2s infinite ease-in-out; }
-        .preset-mercury:hover, .preset-mercury.active { animation: mercury-blob 3s infinite ease-in-out; }
-        .preset-disco:hover, .preset-disco.active { animation: disco-spin 2s infinite linear; }
-        .cursor-pen { cursor: crosshair; }
-        .theme-menu-item { opacity: 0; transform: translateX(20px); transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-        .theme-menu-open .theme-menu-item { opacity: 1; transform: translateX(0); }
+        
+        .deck-card {
+            transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+            position: absolute;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 6px;
+            background-size: cover;
+            background-position: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.2);
+            will-change: transform, bottom, opacity;
+        }
+
+        /* Lift and Drop Animations for Deck */
+        @keyframes deck-lift-up-back {
+            0% { transform: translateY(0) scale(1); z-index: 20; }
+            50% { transform: translateY(-30px) scale(1.1); z-index: 25; }
+            100% { transform: translateY(0) scale(0.9) translateY(5px); z-index: 5; opacity: 0.6; }
+        }
+        @keyframes deck-lift-down-front {
+            0% { transform: translateY(0) scale(0.9); z-index: 5; opacity: 0.6; }
+            50% { transform: translateY(30px) scale(1.1); z-index: 25; opacity: 1; }
+            100% { transform: translateY(0) scale(1); z-index: 20; opacity: 1; }
+        }
+
+        .anim-lift-next { animation: deck-lift-up-back 0.4s forwards; }
+        .anim-drop-prev { animation: deck-lift-down-front 0.4s forwards; }
+
+        .theme-menu-item { opacity: 0; transform: translateX(20px); transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); pointer-events: none; }
+        .theme-menu-open .theme-menu-item { opacity: 1; transform: translateX(0); pointer-events: auto; }
         .theme-menu-open .item-1 { transition-delay: 0.05s; }
         .theme-menu-open .item-2 { transition-delay: 0.1s; }
         .theme-menu-open .item-3 { transition-delay: 0.15s; }
         .theme-menu-open .item-4 { transition-delay: 0.2s; }
         .theme-menu-open .item-5 { transition-delay: 0.25s; }
         .theme-menu-open .item-6 { transition-delay: 0.3s; }
-        .shape-menu-open .theme-menu-item { opacity: 1; transform: translateX(0); }
+        
+        .shape-menu-open .theme-menu-item { opacity: 1; transform: translateX(0); pointer-events: auto; }
         .shape-menu-open .item-1 { transition-delay: 0.05s; }
         .shape-menu-open .item-2 { transition-delay: 0.1s; }
         .shape-menu-open .item-3 { transition-delay: 0.15s; }
         .shape-menu-open .item-4 { transition-delay: 0.2s; }
         .shape-menu-open .item-5 { transition-delay: 0.25s; }
-        @keyframes vfx-entry { 0% { opacity: 0; transform: translateY(-20px) scale(0.95); filter: blur(5px); } 100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0px); } }
-        @keyframes menu-pop { 0% { opacity: 0; transform: scale(0.9) translateY(-10px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
-        .menu-animate { animation: menu-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
-        .vfx-item { opacity: 0; animation: vfx-entry 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-        .delay-1 { animation-delay: 0.05s; }
-        .delay-2 { animation-delay: 0.1s; }
-        .delay-3 { animation-delay: 0.15s; }
-        .delay-4 { animation-delay: 0.2s; }
-        .delay-5 { animation-delay: 0.25s; }
-        .delay-6 { animation-delay: 0.3s; }
-        .delay-7 { animation-delay: 0.35s; }
-        .oval-picker-container { animation: menu-pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-        
-        /* Gapless Marquee Loop */
-        @keyframes marquee-loop {
-          0% { transform: translateX(0%); }
-          100% { transform: translateX(-50%); }
-        }
-        .animate-marquee-loop {
-          display: flex;
-          width: max-content;
-          animation: marquee-loop 12s linear infinite;
-        }
+
+        /* VFX Popup Animation */
+        @keyframes popup-open { 0% { transform: scale(0.8); opacity: 0; filter: blur(10px); } 100% { transform: scale(1); opacity: 1; filter: blur(0px); } }
+        .animate-popup { animation: popup-open 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+
       `}</style>
       
       {isAnyMenuOpen && ( <div className="fixed inset-0 z-40 bg-transparent" onPointerDown={closeAllMenus} /> )}
 
+      {/* Preload Container */}
+      <div className="hidden">
+          {bgImages.map((src, i) => <img key={i} src={src} alt="preload" />)}
+      </div>
+
       <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileSelect} className="hidden" />
       <input type="file" accept="audio/*" ref={audioInputRef} onChange={handleAudioSelect} className="hidden" />
-      <input type="file" accept="image/*" ref={bgImageInputRef} onChange={handleBgImageSelect} className="hidden" />
+      <input type="file" accept="image/*" multiple ref={bgImageInputRef} onChange={handleBgImagesSelect} className="hidden" />
 
-      {/* --- AUDIO TITLE INDICATOR & SETTINGS --- */}
+      {/* ... (Show Music Player Code Omitted for Brevity - Unchanged) ... */}
       {showMusicPlayer && (
           <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-40 transition-all duration-700 ease-in-out ${musicPlayerClass}`}>
              <div 
                 className={`relative group rounded-full px-5 py-2 backdrop-blur-md shadow-lg border border-white/10 flex items-center justify-center overflow-visible max-w-[280px] transition-all duration-300 cursor-pointer ${isLightMode ? 'bg-black/10 text-black border-black/10' : 'bg-white/10 text-white'}`}
                 onClick={onTogglePlay}
              >
-                 {/* Play/Pause Overlay - Hover Effect */}
                  <div className="absolute inset-0 z-20 flex items-center justify-center rounded-full bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                     {isPlaying ? (
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" className="text-white drop-shadow-md"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
@@ -412,9 +555,8 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                      </div>
                  )}
 
-                 {/* Marquee Content */}
                  <div className={`w-full overflow-hidden ${!isPlaying ? 'opacity-50' : 'opacity-100'} transition-opacity`}>
-                    {audioTitle.length > 30 ? (
+                    {audioTitle && audioTitle.length > 30 ? (
                         <div className="animate-marquee-loop">
                             <span className="whitespace-nowrap pr-[300px] text-[15px]" style={{ fontFamily: musicFont, fontWeight: musicBold ? 'bold' : 'normal', fontStyle: musicItalic ? 'italic' : 'normal' }}>{audioTitle}</span>
                             <span className="whitespace-nowrap pr-[300px] text-[15px]" style={{ fontFamily: musicFont, fontWeight: musicBold ? 'bold' : 'normal', fontStyle: musicItalic ? 'italic' : 'normal' }}>{audioTitle}</span>
@@ -424,7 +566,6 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                     )}
                  </div>
 
-                 {/* Settings Button (Hover) */}
                  <button 
                     onClick={(e) => { e.stopPropagation(); setShowMusicSettings(!showMusicSettings); }}
                     className={`absolute -right-3 -top-3 w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 shadow-md z-30 ${isLightMode ? 'bg-white text-black border border-black/10' : 'bg-black text-white border border-white/20'}`}
@@ -432,26 +573,19 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                  </button>
 
-                 {/* Music Settings Menu */}
                  {showMusicSettings && (
                     <div className="absolute top-10 left-1/2 -translate-x-1/2 w-64 bg-[#111]/95 backdrop-blur-xl border border-white/20 rounded-2xl p-4 shadow-[0_20px_50px_rgba(0,0,0,0.6)] animate-config-pop cursor-default z-40" onPointerDown={stopProp} onClick={(e) => e.stopPropagation()}>
                         <h4 className="text-xs font-mono uppercase text-gray-500 mb-3 tracking-widest border-b border-white/10 pb-2 vfx-item delay-1 text-center">Müzik Ayarları</h4>
-                        
-                        {/* Font Selection */}
                         <div className="mb-3 vfx-item delay-2">
                             <label className="text-[10px] text-gray-400 block mb-1 font-medium">Yazı Tipi</label>
                             <select value={musicFont} onChange={(e) => setMusicFont(e.target.value)} className="w-full bg-black/40 border border-white/20 rounded-lg text-xs text-white p-2 outline-none cursor-pointer">
                                 {FONTS.map(f => (<option key={f.name} value={f.value} className="bg-gray-900 text-white">{f.name}</option>))}
                             </select>
                         </div>
-
-                        {/* Style Toggles */}
                         <div className="flex gap-2 mb-3 vfx-item delay-3">
                             <button onClick={() => setMusicBold(!musicBold)} className={`flex-1 py-1.5 rounded border text-xs font-bold transition-all ${musicBold ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>B</button>
                             <button onClick={() => setMusicItalic(!musicItalic)} className={`flex-1 py-1.5 rounded border text-xs italic transition-all ${musicItalic ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>I</button>
                         </div>
-
-                        {/* Show In Clean Mode */}
                         <div className="flex items-center justify-between border-t border-white/10 pt-3 vfx-item delay-4">
                             <span className="text-[10px] text-gray-400 font-medium">Temiz Modda Göster</span>
                             <button onClick={() => setMusicShowInCleanMode(!musicShowInCleanMode)} className={`w-8 h-4 rounded-full relative transition-colors ${musicShowInCleanMode ? 'bg-blue-600' : 'bg-white/10'}`}>
@@ -464,9 +598,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           </div>
       )}
 
-      {/* --- MODALS --- */}
-      
-      {/* Resim Yükleme Modalı */}
+      {/* ... (Modals Omitted for Brevity - Unchanged) ... */}
       {showImageModal && pendingImage && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
           <div className="bg-[#111] border border-white/20 p-6 rounded-2xl max-w-sm w-full shadow-2xl animate-in zoom-in duration-300">
@@ -496,29 +628,196 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         </div>
       )}
 
-      {/* Arka Plan Resim Modalı */}
-      {showBgSettingsModal && pendingBgImage && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
-           <div className="bg-[#111] border border-white/20 p-6 rounded-2xl max-w-sm w-full shadow-2xl animate-in zoom-in duration-300">
-             <h3 className="text-white font-mono text-lg mb-4 text-center">Arka Plan Ayarı</h3>
-             <div className="w-full h-40 bg-gray-900 rounded-lg mb-4 overflow-hidden relative border border-white/10">
-               <img src={pendingBgImage} alt="Bg Preview" className="w-full h-full" style={{ objectFit: selectedBgStyle }} />
-             </div>
-             <div className="grid grid-cols-3 gap-2 mb-6">
-                {(['cover', 'contain', 'fill'] as BgImageStyle[]).map(style => (
-                  <button key={style} onClick={() => setSelectedBgStyle(style)} className={`py-2 text-xs rounded border transition-all ${selectedBgStyle === style ? 'bg-blue-600/30 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10'}`}>
-                    {bgStyleLabels[style]}
-                  </button>
-                ))}
-             </div>
-             <div className="flex gap-3">
-               <button onClick={() => { setShowBgSettingsModal(false); setPendingBgImage(null); onInteractionEnd(); }} className="flex-1 py-3 rounded-lg bg-white/10 text-white/70 hover:bg-white/20 hover:text-white transition-colors font-medium">İptal</button>
-               <button onClick={confirmBgImage} className="flex-1 py-3 rounded-lg bg-blue-600 text-white hover:bg-blue-500 transition-colors font-bold shadow-lg shadow-blue-900/50">Uygula</button>
-             </div>
-           </div>
-        </div>
+      {/* --- BACKGROUND DECK (CARD STACK) --- */}
+      {bgImages.length > 0 && (
+          <div 
+            className={`absolute bottom-6 right-44 w-24 h-16 transition-all duration-500 ease-in-out ${deckClass} z-[55]`}
+            onPointerDown={stopProp}
+            onContextMenu={handleDeckContextMenu}
+            onWheel={handleDeckScroll}
+          >
+              <div className="relative w-full h-full perspective-[500px]">
+                  
+                  {/* Deste Elemanları */}
+                  {Array.from({ length: Math.min(bgImages.length, EXPAND_COUNT) }).map((_, i) => {
+                      const imgIndex = (deckIndex + i) % bgImages.length;
+                      const img = bgImages[imgIndex];
+                      
+                      // COLLAPSED STATE STYLES - PHYSICAL DECK LOOK
+                      let collapsedBottom = 0;
+                      let collapsedScale = 1;
+                      let collapsedZ = 20 - i;
+                      let collapsedOpacity = 1;
+                      let collapsedTransform = `translateY(0) scale(1)`;
+                      let animClass = "";
+
+                      if (!isDeckExpanded) {
+                          if (i === 0) { // Active (Middle)
+                              collapsedZ = 20;
+                              collapsedOpacity = 1;
+                              if (animDirection === 'next') animClass = 'anim-lift-next';
+                          } else if (i === 1) { // Next (Top peeking)
+                              collapsedZ = 15;
+                              collapsedScale = 0.9;
+                              collapsedBottom = 5; 
+                              collapsedTransform = `translateY(-5px) scale(0.9)`;
+                              collapsedOpacity = 0.8;
+                          } else if (i === bgImages.length - 1) { // Prev (Bottom peeking) - fake index logic for visual
+                              // This loop logic iterates forward, so simulating "previous" visually needs a trick or just simple stacking
+                              // We will stick to simple stacking: index 2+ are hidden under
+                              collapsedOpacity = 0;
+                          } else {
+                              collapsedOpacity = 0;
+                          }
+                          
+                          // Override specifically for the "Previous" visual if we are at index 0 and have history
+                          // Since we rotate the array index, the last item in array is physically "before" the first if looped.
+                          // But here we iterate 0..N. Let's just make index 2 peek from bottom to simulate "stack" depth?
+                          if (i === 2) {
+                              collapsedZ = 10;
+                              collapsedScale = 0.85;
+                              collapsedBottom = -3;
+                              collapsedTransform = `translateY(3px) scale(0.85)`;
+                              collapsedOpacity = 0.6;
+                          }
+                      }
+
+                      // EXPANDED STATE STYLES
+                      const expandedBottom = (CARD_HEIGHT + GAP) * i;
+                      const expandedScale = 1;
+                      const expandedOpacity = 1;
+                      const expandedZ = 50 - i;
+                      const expandedTransform = `translateY(0) scale(1)`;
+
+                      // MERGED STYLES
+                      const finalBottom = isDeckExpanded ? expandedBottom : collapsedBottom;
+                      const finalTransform = isDeckExpanded ? expandedTransform : collapsedTransform;
+                      const finalOpacity = isDeckExpanded ? expandedOpacity : collapsedOpacity;
+                      const finalZ = isDeckExpanded ? expandedZ : collapsedZ;
+
+                      return (
+                          <div 
+                            key={imgIndex} 
+                            className={`deck-card cursor-pointer group hover:border-blue-400 ${!isDeckExpanded ? animClass : ''}`}
+                            style={{ 
+                                backgroundImage: `url(${img})`,
+                                bottom: `${finalBottom}px`,
+                                transform: finalTransform,
+                                opacity: finalOpacity,
+                                zIndex: finalZ,
+                                transitionDelay: isDeckExpanded ? `${i * 0.05}s` : '0s'
+                            }}
+                            onClick={(e) => handleCardClick(e, img)}
+                            onMouseEnter={() => {
+                                if (isDeckExpanded && onBgImageSelect) onBgImageSelect(img);
+                            }}
+                          >
+                             {/* Config Button (Only visible on top card when collapsed) */}
+                             {i === 0 && !isDeckExpanded && (
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); setDeckShowSettings(!deckShowSettings); }}
+                                    className="absolute top-1 right-1 w-4 h-4 bg-black/60 rounded-full flex items-center justify-center text-white/80 hover:text-white hover:bg-black/80 opacity-0 group-hover:opacity-100 transition-all duration-200 backdrop-blur-sm"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                                </button>
+                             )}
+
+                             {/* Remove Button (Visible in Expanded Mode) */}
+                             {isDeckExpanded && (
+                                 <button
+                                    onClick={(e) => { e.stopPropagation(); if(onRemoveBgImage) onRemoveBgImage(img); }}
+                                    className="absolute -top-1 -right-1 w-4 h-4 bg-red-600 rounded-full flex items-center justify-center text-white shadow-md hover:bg-red-500 transition-colors z-50"
+                                 >
+                                     <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                 </button>
+                             )}
+                          </div>
+                      );
+                  })}
+              </div>
+
+              {/* Deck Settings Popup */}
+              {deckShowSettings && !isDeckExpanded && (
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-32 bg-[#111]/95 backdrop-blur-xl border border-white/20 rounded-xl p-2 shadow-[0_10px_30px_rgba(0,0,0,0.5)] animate-config-pop origin-bottom z-[60]" onClick={stopProp}>
+                      <h4 className="text-[10px] font-mono uppercase text-gray-500 mb-2 tracking-widest text-center border-b border-white/10 pb-1">Resim Boyutu</h4>
+                      <div className="flex flex-col gap-1 mb-2">
+                          <div className="flex gap-1">
+                            <button onClick={(e) => { onBgImageStyleChange && onBgImageStyleChange('cover'); openCropper(e); }} className={`flex-1 text-[10px] py-1 px-1 rounded border transition-colors ${bgImageStyle === 'cover' ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Doldur</button>
+                            {bgImageStyle === 'cover' && (
+                                <button onClick={(e) => openCropper(e)} className="w-6 flex items-center justify-center rounded border border-white/10 bg-white/5 hover:bg-white/20 text-white" title="Konumla">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                                </button>
+                            )}
+                          </div>
+                          <button onClick={() => onBgImageStyleChange && onBgImageStyleChange('contain')} className={`text-[10px] py-1 px-2 rounded border transition-colors ${bgImageStyle === 'contain' ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Ortala</button>
+                          <button onClick={() => onBgImageStyleChange && onBgImageStyleChange('fill')} className={`text-[10px] py-1 px-2 rounded border transition-colors ${bgImageStyle === 'fill' ? 'bg-blue-600 border-blue-500 text-white' : 'bg-white/5 border-white/10 text-gray-400 hover:text-white'}`}>Uzat</button>
+                      </div>
+                      <div className="border-t border-white/10 pt-2 flex items-center justify-between">
+                          <span className="text-[9px] text-gray-400">Temiz Modda Gizle</span>
+                          <button onClick={() => setDeckHideInCleanMode(!deckHideInCleanMode)} className={`w-6 h-3 rounded-full relative transition-colors ${deckHideInCleanMode ? 'bg-blue-600' : 'bg-white/10'}`}>
+                                <div className={`absolute top-0.5 left-0.5 w-2 h-2 rounded-full bg-white transition-transform ${deckHideInCleanMode ? 'translate-x-3' : 'translate-x-0'}`} />
+                          </button>
+                      </div>
+                  </div>
+              )}
+          </div>
       )}
-      
+
+      {/* --- CROPPER MODAL (VFX POPUP) --- */}
+      {showCropper && cropImage && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md" onPointerDown={(e) => e.stopPropagation()}>
+              <div className="relative bg-[#111] border border-white/20 p-2 rounded-xl shadow-[0_0_50px_rgba(0,100,255,0.3)] animate-popup max-w-4xl w-full mx-4">
+                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-[10px] font-bold px-3 py-1 rounded-full shadow-lg z-20 font-mono tracking-wider">
+                      KONUMLANDIRMA
+                  </div>
+                  
+                  {/* Cropping Area */}
+                  <div 
+                    className="relative w-full aspect-video bg-black/50 overflow-hidden rounded-lg border border-white/10 cursor-move group"
+                    ref={cropRef}
+                    onMouseDown={handleCropMouseDown}
+                    onMouseMove={handleCropMouseMove}
+                    onMouseUp={handleCropMouseUp}
+                    onMouseLeave={handleCropMouseUp}
+                    onWheel={handleCropWheel}
+                  >
+                      {/* Grid Overlay */}
+                      <div className="absolute inset-0 pointer-events-none z-10 opacity-30 border-2 border-blue-500/50">
+                          <div className="absolute left-1/3 top-0 bottom-0 w-px bg-blue-500/30"></div>
+                          <div className="absolute right-1/3 top-0 bottom-0 w-px bg-blue-500/30"></div>
+                          <div className="absolute top-1/3 left-0 right-0 h-px bg-blue-500/30"></div>
+                          <div className="absolute bottom-1/3 left-0 right-0 h-px bg-blue-500/30"></div>
+                      </div>
+                      
+                      {/* Image */}
+                      <img 
+                        src={cropImage} 
+                        alt="Crop Target" 
+                        className="absolute max-w-none w-full h-full object-cover transition-transform duration-75 ease-out"
+                        style={{
+                            objectPosition: `${cropPosition.x}% ${cropPosition.y}%`,
+                            transform: `scale(${cropZoom})`
+                        }}
+                      />
+                      
+                      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur px-3 py-1 rounded-full text-[10px] text-white/70 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+                          Sürükle: Konum | Tekerlek: Yakınlaş
+                      </div>
+                  </div>
+
+                  <div className="flex justify-between items-center mt-3 px-2">
+                      <div className="text-[10px] text-gray-500 font-mono">
+                          POS: {Math.round(cropPosition.x)}%,{Math.round(cropPosition.y)}% | ZOOM: {cropZoom.toFixed(1)}x
+                      </div>
+                      <div className="flex gap-2">
+                          <button onClick={() => setShowCropper(false)} className="px-4 py-2 rounded-lg bg-white/10 text-white/70 hover:text-white text-xs font-bold transition-colors">İptal</button>
+                          <button onClick={confirmCrop} className="px-6 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-500 text-xs font-bold shadow-lg shadow-blue-900/50 transition-all hover:scale-105">Onayla</button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* Ses Yükleme Onay Modalı (Düzenlenmiş) */}
       {showAudioModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm" onPointerDown={(e) => e.stopPropagation()}>
@@ -611,6 +910,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
             <button onClick={() => { setIsSettingsOpen(!isSettingsOpen); setIsThemeMenuOpen(false); setIsShapeMenuOpen(false); setIsBgPaletteOpen(false); }} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 border ${isLightMode ? `border-black/20 text-black ${isSettingsOpen ? 'bg-black/20 rotate-90' : 'bg-black/5 hover:bg-black/10'}` : `border-white/20 text-white ${isSettingsOpen ? 'bg-white/20 rotate-90' : 'bg-white/5 hover:bg-white/10'}`}`} title="Konfigürasyon"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.47a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
         </div>
 
+        {/* ... (Theme and Shape menus omitted for brevity) ... */}
         <div className={`absolute top-12 right-24 flex flex-col gap-2 items-end ${isShapeMenuOpen ? 'shape-menu-open pointer-events-auto' : 'pointer-events-none'}`}>
              <button onClick={() => handleShapeSelect('sphere')} className={`theme-menu-item item-1 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/60 backdrop-blur text-white hover:scale-110 ${currentShape === 'sphere' ? 'ring-2 ring-blue-400 bg-blue-500/30' : ''}`} title="Küre"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle></svg></button>
              <button onClick={() => handleShapeSelect('cube')} className={`theme-menu-item item-2 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/60 backdrop-blur text-white hover:scale-110 ${currentShape === 'cube' ? 'ring-2 ring-blue-400 bg-blue-500/30' : ''}`} title="Küp"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg></button>
@@ -622,7 +922,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
         <div className={`absolute top-12 right-12 flex flex-col gap-2 items-end ${isThemeMenuOpen ? 'theme-menu-open pointer-events-auto' : 'pointer-events-none'}`}>
              <button onClick={() => { onBgModeChange('dark'); setIsThemeMenuOpen(false); }} className={`theme-menu-item item-1 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-black/80 text-white hover:scale-110 ${bgMode === 'dark' ? 'ring-2 ring-white' : ''}`} title="Karanlık Mod"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg></button>
              <button onClick={() => { onBgModeChange('light'); setIsThemeMenuOpen(false); }} className={`theme-menu-item item-2 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-white text-black hover:scale-110 ${bgMode === 'light' ? 'ring-2 ring-yellow-400' : ''}`} title="Aydınlık Mod"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg></button>
-             <button onClick={() => { bgImageInputRef.current?.click(); setIsThemeMenuOpen(false); }} className={`theme-menu-item item-3 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gray-800 text-white hover:scale-110 ${bgMode === 'image' ? 'ring-2 ring-blue-400' : ''}`} title="Arka Plan Resmi"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></button>
+             <button onClick={() => { bgImageInputRef.current?.click(); }} className={`theme-menu-item item-3 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gray-800 text-white hover:scale-110 ${bgMode === 'image' ? 'ring-2 ring-blue-400' : ''}`} title="Arka Plan Resmi"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></button>
              <button onClick={() => { setIsBgPaletteOpen(!isBgPaletteOpen); setIsThemeMenuOpen(false); }} className={`theme-menu-item item-4 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gradient-to-tr from-pink-500 to-purple-500 text-white hover:scale-110 ${bgMode === 'color' ? 'ring-2 ring-pink-300' : ''}`} title="Arka Plan Rengi"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5"></circle><circle cx="17.5" cy="10.5" r=".5"></circle><circle cx="8.5" cy="7.5" r=".5"></circle><circle cx="6.5" cy="12.5" r=".5"></circle><path d="M12 22.5A9.5 9.5 0 0 0 22 12c0-4.9-4.5-9-10-9S2 7.1 2 12c0 2.25 1 5.38 2.5 7.5"></path></svg></button>
              <button onClick={() => { onBgModeChange('gradient'); setIsThemeMenuOpen(false); }} className={`theme-menu-item item-5 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-[linear-gradient(45deg,red,blue)] text-white hover:scale-110 ${bgMode === 'gradient' ? 'ring-2 ring-purple-400' : ''}`} title="Disko Modu"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></button>
              <button onClick={() => { onBgModeChange('auto'); setIsThemeMenuOpen(false); }} className={`theme-menu-item item-6 w-10 h-10 rounded-full border border-white/20 flex items-center justify-center transition-all bg-gray-900 text-white hover:scale-110 ${bgMode === 'auto' ? 'ring-2 ring-green-400' : ''}`} title="Otomatik Döngü"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg></button>
@@ -690,7 +990,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
           <div className="flex items-center gap-2">
             {hasImage && !isOriginalColors && !isDrawing && (<button onClick={onResetColors} className="w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center bg-gradient-to-tr from-gray-800 to-gray-700 hover:from-gray-700 hover:to-gray-600 transition-all duration-300 border border-white/20 hover:border-white/50 text-white/80 hover:text-white animate-in fade-in zoom-in" title="Orijinal Renklere Dön" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg></button>)}
             <button onClick={() => setIsPaletteOpen(!isPaletteOpen)} className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border-2 z-20 ${isLightMode ? 'bg-black/5 hover:bg-black/20 border-black/20 hover:border-black shadow-[0_0_15px_rgba(0,0,0,0.1)] hover:shadow-[0_0_20px_rgba(0,0,0,0.3)]' : 'bg-white/5 hover:bg-white/20 border-white/20 hover:border-white shadow-[0_0_15px_rgba(255,255,255,0.1)] hover:shadow-[0_0_20px_rgba(255,255,255,0.3)]'}`} title="Renk Paletini Aç" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}><div className={`w-6 h-6 rounded-full shadow-sm ${isLightMode ? 'border border-black/20' : 'border border-white/50'}`} style={{ backgroundColor: currentColor }} /></button>
-             <button onClick={isDrawing ? onClearCanvas : onResetAll} className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border ${isDrawing ? 'bg-orange-500/10 hover:bg-orange-500/30 hover:border-orange-400 border-white/20 text-white/70 hover:text-white' : isLightMode ? 'bg-red-500/10 hover:bg-red-500/30 hover:border-red-400 border-black/20 text-black/70 hover:text-black' : 'bg-red-500/10 hover:bg-red-500/30 hover:border-red-400 border-white/20 text-white/70 hover:text-white'}`} title={isDrawing ? "Tuvali Temizle" : "Her Şeyi Sıfırla"} onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>{isDrawing ? (<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>) : (<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 16h5v5"></path></svg>)}</button>
+             <button onClick={isDrawing ? onClearCanvas : onResetAll} className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border ${isDrawing ? 'bg-orange-500/10 hover:bg-orange-500/30 hover:border-orange-400 border-white/20 text-white/70 hover:text-white' : isLightMode ? 'bg-red-500/10 hover:bg-red-500/30 hover:border-red-400 border-black/20 text-black/70 hover:text-black' : 'bg-red-500/10 hover:bg-red-500/30 hover:border-red-400 border-white/20 text-white/70 hover:text-white'}`} title="Tuvali Temizle" onMouseEnter={onInteractionStart} onMouseLeave={onInteractionEnd}>{isDrawing ? (<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>) : (<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 16h5v5"></path></svg>)}</button>
           </div>
         </div>
         {!isDrawing && (<div className={`absolute -bottom-6 text-center text-[10px] font-mono opacity-50 ${isLightMode ? 'text-black' : 'text-gray-500'}`}>Küre moduna dönmek için boş Enter</div>)}
