@@ -34,13 +34,6 @@ const DIGIT_MAP: Record<number, string[]> = {
 
 /* 
    GEOMETRİ VE GRID SİSTEMİ (4x7)
-   
-   Birim (u) Hesabı:
-   Genişlik = 4u, Yükseklik = 7u
-   
-   Yüzdeler:
-   Yatayda 1u = 25% (1/4)
-   Dikeyde 1u = 14.2857% (1/7)
 */
 
 // Dikey Yüzdeler
@@ -74,7 +67,6 @@ const SEGMENT_STYLES: Record<string, React.CSSProperties> = {
 };
 
 // SIKIŞTIRMA (SQUEEZE) AYARLARI
-// Her parçayı merkeze doğru 2px itmek için transform değerleri
 const SEGMENT_TRANSFORMS: Record<string, string> = {
     A: 'translateY(2px)',  // Aşağı
     D: 'translateY(-2px)', // Yukarı
@@ -86,11 +78,21 @@ const SEGMENT_TRANSFORMS: Record<string, string> = {
 };
 
 // DÖNÜŞ EKSENİ (Medallion Flip)
-// Yataylar (Horizontal) -> RotateX
-// Dikeyler (Vertical) -> RotateY
 const ROTATION_AXIS: Record<string, 'X' | 'Y'> = {
     A: 'X', G: 'X', D: 'X',
     F: 'Y', B: 'Y', E: 'Y', C: 'Y'
+};
+
+// Z-Index Priority for Active Segments (To handle shadow overlapping correctly)
+// Items closer to Bottom-Right (direction of shadow) should be on top.
+const SEGMENT_Z_PRIORITY: Record<string, number> = {
+    A: 1, // Top
+    F: 2, // Top-Left
+    B: 3, // Top-Right
+    G: 4, // Middle
+    E: 5, // Bottom-Left
+    C: 6, // Bottom-Right
+    D: 7  // Bottom
 };
 
 const Segment: React.FC<{ 
@@ -98,27 +100,28 @@ const Segment: React.FC<{
     active: boolean; 
     color: string; 
     bgColor: string;
-}> = ({ id, active, color, bgColor }) => {
+    zIndexBase?: number;
+}> = ({ id, active, color, bgColor, zIndexBase = 0 }) => {
     
-    // Aktif değilse arkasını dön (180 derece)
-    // Yataylar aşağı (X), Dikeyler sola (Y) döner.
     const axis = ROTATION_AXIS[id];
     const rotateVal = active ? '0deg' : '-180deg';
     const transformString = `rotate${axis}(${rotateVal})`;
+    
+    // Calculate Z-Index
+    // Active: High base + Digit Offset + Segment Priority
+    // Passive: 1 (Background)
+    const priority = SEGMENT_Z_PRIORITY[id];
+    const zIndex = active ? (50 + zIndexBase + priority) : 1;
 
     return (
         <div 
             className="absolute"
             style={{ 
                 ...SEGMENT_STYLES[id], 
-                zIndex: 10,
-                perspective: '1200px', // 3D derinlik algısı arttırıldı
+                zIndex: zIndex, 
+                perspective: '1200px', 
             }}
         >
-             {/* 
-                FLIPPER CONTAINER 
-                Transform ve Squeeze burada uygulanır.
-             */}
              <div 
                 className="w-full h-full relative transition-transform duration-700 cubic-bezier(0.4, 0.0, 0.2, 1)"
                 style={{
@@ -128,30 +131,30 @@ const Segment: React.FC<{
              >
                 {/* --- ÖN YÜZ (Active Color) --- */}
                 <div 
-                    className="absolute inset-[0.5px] rounded-[4px] border border-white/10" // Inset azaltılarak daha kalın görünüm
+                    className="absolute inset-[0.5px] rounded-[4px] border border-white/10"
                     style={{
                         backfaceVisibility: 'hidden',
                         backgroundColor: color,
-                        // 3D KABARTMA (EMBOSS) EFEKTİ
+                        // GÜÇLENDİRİLMİŞ SAĞ-ARKA GÖLGE VE KABARTMA
                         boxShadow: `
                             inset 2px 2px 4px rgba(255,255,255,0.4), 
                             inset -2px -2px 4px rgba(0,0,0,0.4),
-                            0 0 10px ${color}66
+                            0 0 10px ${color}66,
+                            15px 15px 25px rgba(0,0,0,0.7) 
                         `,
                         zIndex: 2
                     }}
                 >
-                     {/* Hafif parlama efekti */}
                      <div className="absolute inset-0 bg-gradient-to-br from-white/30 to-transparent rounded-[4px] pointer-events-none"></div>
                 </div>
 
                 {/* --- ARKA YÜZ (Background Color) --- */}
                 <div 
-                    className="absolute inset-[0.5px] rounded-[4px]" // Inset azaltıldı
+                    className="absolute inset-[0.5px] rounded-[4px]"
                     style={{
                         backfaceVisibility: 'hidden',
-                        backgroundColor: bgColor, // Tamamen arka plan rengi
-                        transform: `rotate${axis}(180deg)`, // Arka yüzü ters çevirip yerine oturtuyoruz
+                        backgroundColor: bgColor, 
+                        transform: `rotate${axis}(180deg)`, 
                         zIndex: 1,
                     }}
                 />
@@ -160,10 +163,9 @@ const Segment: React.FC<{
     );
 };
 
-const Digit: React.FC<{ value: number; color: string; bgColor: string; size: string }> = ({ value, color, bgColor, size }) => {
+const Digit: React.FC<{ value: number; color: string; bgColor: string; size: string; zIndexBase?: number }> = ({ value, color, bgColor, size, zIndexBase }) => {
     const activeSegments = DIGIT_MAP[value] || [];
 
-    // Aspect Ratio 4/7 (~0.5714)
     return (
         <div 
             className="relative inline-block mx-[0.5vmin]"
@@ -179,6 +181,7 @@ const Digit: React.FC<{ value: number; color: string; bgColor: string; size: str
                     active={activeSegments.includes(seg)} 
                     color={color} 
                     bgColor={bgColor}
+                    zIndexBase={zIndexBase}
                 />
             ))}
         </div>
@@ -186,9 +189,12 @@ const Digit: React.FC<{ value: number; color: string; bgColor: string; size: str
 };
 
 const AnimatedWeatherIcon: React.FC<{ condition: WeatherCondition, color: string }> = ({ condition, color }) => {
+    // İkonlar için Drop Shadow (SVG olduğu için text-shadow işlemez)
+    const iconFilter = "drop-shadow(4px 4px 6px rgba(0,0,0,0.6))";
+
     if (condition === 'clear') {
         return (
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" className="overflow-visible">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" className="overflow-visible" style={{ filter: iconFilter }}>
                 <g className="origin-center animate-spin-slow-custom">
                     <circle cx="12" cy="12" r="5" fill={color} fillOpacity="0.2" stroke={color} strokeWidth="1.5" />
                     <path d="M12 2V4 M12 20V22 M4.93 4.93L6.34 6.34 M17.66 17.66L19.07 19.07 M2 12H4 M20 12H22 M4.93 19.07L6.34 17.66 M17.66 6.34L19.07 4.93" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
@@ -198,7 +204,7 @@ const AnimatedWeatherIcon: React.FC<{ condition: WeatherCondition, color: string
     }
     if (condition === 'cloudy') {
         return (
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" className="overflow-visible">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" className="overflow-visible" style={{ filter: iconFilter }}>
                 <path d="M16 19H7a4 4 0 0 1 0-8 3 3 0 0 1 3-3 4.5 4.5 0 0 1 5.6 1.5 2.5 2.5 0 0 1 .4 4.5" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="animate-cloud-drift-1" fill={color} fillOpacity="0.1" />
                 <path d="M19 12H18.5" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
                 <path d="M14 17H19a3 3 0 0 0 0-6 2.5 2.5 0 0 0-3.5 1" stroke={color} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" className="animate-cloud-drift-2 opacity-70" />
@@ -207,7 +213,7 @@ const AnimatedWeatherIcon: React.FC<{ condition: WeatherCondition, color: string
     }
     if (condition === 'rain') {
         return (
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" className="overflow-visible">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" className="overflow-visible" style={{ filter: iconFilter }}>
                 <path d="M16 16H7a4 4 0 0 1 0-8 3 3 0 0 1 3-3 4.5 4.5 0 0 1 5.6 1.5 2.5 2.5 0 0 1 2.4 4.5" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill={color} fillOpacity="0.1" />
                 <line x1="8" y1="18" x2="8" y2="22" stroke={color} strokeWidth="1.5" strokeLinecap="round" className="animate-rain-fall-1" />
                 <line x1="12" y1="18" x2="12" y2="22" stroke={color} strokeWidth="1.5" strokeLinecap="round" className="animate-rain-fall-2" />
@@ -217,7 +223,7 @@ const AnimatedWeatherIcon: React.FC<{ condition: WeatherCondition, color: string
     }
     if (condition === 'snow') {
         return (
-            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" className="overflow-visible">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" className="overflow-visible" style={{ filter: iconFilter }}>
                 <path d="M16 16H7a4 4 0 0 1 0-8 3 3 0 0 1 3-3 4.5 4.5 0 0 1 5.6 1.5 2.5 2.5 0 0 1 2.4 4.5" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill={color} fillOpacity="0.1" />
                 <circle cx="8" cy="20" r="1" fill={color} className="animate-snow-fall-1" />
                 <circle cx="12" cy="20" r="1" fill={color} className="animate-snow-fall-2" />
@@ -296,12 +302,17 @@ export const Screensaver: React.FC<ScreensaverProps> = ({
   const dayName = time.toLocaleDateString('tr-TR', { weekday: 'long' });
   const dateStr = time.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
 
-  // 3 KAT BÜYÜKLÜK (Daha önce 18vmin idi, şimdi 40vmin olarak ayarlandı)
   const digitSize = "40vmin";
 
   // Renk Kontrolleri
   const isDefaultBlack = bgColor.toLowerCase() === '#000000' || bgColor.toLowerCase() === '#000';
   const effectiveBgColor = isDefaultBlack ? '#000000' : bgColor;
+
+  // Kabartma (Emboss) Style - Yazılar İçin
+  const embossStyle: React.CSSProperties = {
+      textShadow: '3px 3px 6px rgba(0,0,0,0.6), -1px -1px 2px rgba(255,255,255,0.15)',
+      color: textColor
+  };
 
   return (
     <div 
@@ -312,7 +323,6 @@ export const Screensaver: React.FC<ScreensaverProps> = ({
       }}
       onClick={onClick}
     >
-      {/* Animasyonlar için Style */}
       <style>{`
         @keyframes spin-slow-custom { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .animate-spin-slow-custom { animation: spin-slow-custom 12s linear infinite; }
@@ -333,7 +343,7 @@ export const Screensaver: React.FC<ScreensaverProps> = ({
       {weatherData && (
           <div className="absolute top-10 right-10 flex flex-col items-center animate-in fade-in zoom-in duration-1000">
               <AnimatedWeatherIcon condition={weatherData.condition} color={textColor} />
-              <div className="flex flex-col items-center mt-2" style={{ color: textColor }}>
+              <div className="flex flex-col items-center mt-2" style={embossStyle}>
                   <span className="text-4xl font-bold font-mono tracking-tighter">{Math.round(weatherData.temp)}°C</span>
                   <span className="text-2xl font-mono opacity-80">{weatherData.city}</span>
               </div>
@@ -347,50 +357,51 @@ export const Screensaver: React.FC<ScreensaverProps> = ({
          <div className="flex items-center gap-4 sm:gap-6 mb-8">
             {/* SAAT */}
             <div className="flex">
-                <Digit value={Math.floor(hours / 10)} color={textColor} bgColor={effectiveBgColor} size={digitSize} />
-                <Digit value={hours % 10} color={textColor} bgColor={effectiveBgColor} size={digitSize} />
+                <Digit value={Math.floor(hours / 10)} color={textColor} bgColor={effectiveBgColor} size={digitSize} zIndexBase={10} />
+                <Digit value={hours % 10} color={textColor} bgColor={effectiveBgColor} size={digitSize} zIndexBase={20} />
             </div>
 
             {/* AYIRAÇ */}
-            <div className="flex flex-col gap-[3vmin] mx-2 justify-center opacity-80" style={{ height: digitSize }}>
-                <div className="w-[3vmin] h-[3vmin] rounded-full" style={{ backgroundColor: textColor, boxShadow: `0 0 20px ${textColor}` }} />
-                <div className="w-[3vmin] h-[3vmin] rounded-full" style={{ backgroundColor: textColor, boxShadow: `0 0 20px ${textColor}` }} />
+            <div className="flex flex-col gap-[3vmin] mx-2 justify-center opacity-80 relative" style={{ height: digitSize, zIndex: 25 }}>
+                <div className="w-[3vmin] h-[3vmin] rounded-full" style={{ backgroundColor: textColor, boxShadow: `0 0 20px ${textColor}, 5px 5px 10px rgba(0,0,0,0.5)` }} />
+                <div className="w-[3vmin] h-[3vmin] rounded-full" style={{ backgroundColor: textColor, boxShadow: `0 0 20px ${textColor}, 5px 5px 10px rgba(0,0,0,0.5)` }} />
             </div>
 
             {/* DAKİKA */}
             <div className="flex">
-                <Digit value={Math.floor(minutes / 10)} color={textColor} bgColor={effectiveBgColor} size={digitSize} />
-                <Digit value={minutes % 10} color={textColor} bgColor={effectiveBgColor} size={digitSize} />
+                <Digit value={Math.floor(minutes / 10)} color={textColor} bgColor={effectiveBgColor} size={digitSize} zIndexBase={30} />
+                <Digit value={minutes % 10} color={textColor} bgColor={effectiveBgColor} size={digitSize} zIndexBase={40} />
             </div>
 
             {/* AYIRAÇ */}
-            <div className="flex flex-col gap-[3vmin] mx-2 justify-center opacity-80" style={{ height: digitSize }}>
-                <div className="w-[3vmin] h-[3vmin] rounded-full" style={{ backgroundColor: textColor, boxShadow: `0 0 20px ${textColor}` }} />
-                <div className="w-[3vmin] h-[3vmin] rounded-full" style={{ backgroundColor: textColor, boxShadow: `0 0 20px ${textColor}` }} />
+            <div className="flex flex-col gap-[3vmin] mx-2 justify-center opacity-80 relative" style={{ height: digitSize, zIndex: 45 }}>
+                <div className="w-[3vmin] h-[3vmin] rounded-full" style={{ backgroundColor: textColor, boxShadow: `0 0 20px ${textColor}, 5px 5px 10px rgba(0,0,0,0.5)` }} />
+                <div className="w-[3vmin] h-[3vmin] rounded-full" style={{ backgroundColor: textColor, boxShadow: `0 0 20px ${textColor}, 5px 5px 10px rgba(0,0,0,0.5)` }} />
             </div>
 
             {/* SANİYE */}
             <div className="flex">
-                <Digit value={Math.floor(seconds / 10)} color={textColor} bgColor={effectiveBgColor} size={digitSize} />
-                <Digit value={seconds % 10} color={textColor} bgColor={effectiveBgColor} size={digitSize} />
+                <Digit value={Math.floor(seconds / 10)} color={textColor} bgColor={effectiveBgColor} size={digitSize} zIndexBase={50} />
+                <Digit value={seconds % 10} color={textColor} bgColor={effectiveBgColor} size={digitSize} zIndexBase={60} />
             </div>
          </div>
 
          {/* --- BİLGİ ALANI (GÜN, TARİH, METİN) --- */}
-         <div className="flex flex-col items-center gap-4 w-full text-center" style={{ color: textColor }}>
+         {/* Tüm metinlere Emboss Style uygulandı */}
+         <div className="flex flex-col items-center gap-4 w-full text-center">
              {/* GÜN ADI */}
-             <div className="text-6xl md:text-8xl font-bold tracking-wide uppercase" style={{ textShadow: `0 0 20px ${textColor}40` }}>
+             <div className="text-6xl md:text-8xl font-bold tracking-wide uppercase" style={embossStyle}>
                  {dayName}
              </div>
              
              {/* TAM TARİH */}
-             <div className="text-4xl md:text-6xl font-medium opacity-90 tracking-wider">
+             <div className="text-4xl md:text-6xl font-medium opacity-90 tracking-wider" style={embossStyle}>
                  {dateStr}
              </div>
 
              {/* KULLANICI METNİ */}
              {userText && (
-                 <div className="text-3xl md:text-5xl font-light opacity-80 mt-4 px-4 max-w-[80vw] break-words">
+                 <div className="text-3xl md:text-5xl font-light opacity-80 mt-4 px-4 max-w-[80vw] break-words" style={embossStyle}>
                      {userText}
                  </div>
              )}
