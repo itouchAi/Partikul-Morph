@@ -24,6 +24,7 @@ type ScreensaverState =
 
 const App: React.FC = () => {
   const [currentText, setCurrentText] = useState<string>('');
+  const [widgetUserText, setWidgetUserText] = useState<string>(''); // Clock Widget Metni
   const [particleColor, setParticleColor] = useState<string>('#ffffff');
   
   // Arka Plan State'leri
@@ -543,6 +544,8 @@ const App: React.FC = () => {
                 setSsBgColor={setSsBgColor}
                 ssTextColor={ssTextColor}
                 setSsTextColor={setSsTextColor}
+                userText={widgetUserText} 
+                onUserTextChange={setWidgetUserText}
             />
 
             <div className="absolute inset-0 z-10">
@@ -555,7 +558,7 @@ const App: React.FC = () => {
 
       {/* --- EKRAN KORUYUCU KATMANI --- */}
       <div id="screensaver-layer" style={ssLayerStyle} className="shadow-2xl">
-          <Screensaver active={ssState === 'active' || ssState.startsWith('e') || ssState.startsWith('x')} onClick={handleScreensaverClick} bgColor={ssBgColor} textColor={ssTextColor} />
+          <Screensaver active={ssState === 'active' || ssState.startsWith('e') || ssState.startsWith('x')} onClick={handleScreensaverClick} bgColor={ssBgColor} textColor={ssTextColor} userText={widgetUserText} />
       </div>
 
     </div>

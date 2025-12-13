@@ -19,6 +19,8 @@ interface ClockWidgetProps {
     setSsBgColor?: (color: string) => void;
     ssTextColor?: string;
     setSsTextColor?: (color: string) => void;
+    userText: string;
+    onUserTextChange: (text: string) => void;
 }
 
 // Weather Types
@@ -38,14 +40,15 @@ export const ClockWidget: React.FC<ClockWidgetProps> = ({
     ssBgColor = '#000000',
     setSsBgColor,
     ssTextColor = '#ffffff',
-    setSsTextColor
+    setSsTextColor,
+    userText,
+    onUserTextChange
 }) => {
   const [time, setTime] = useState(new Date());
   const [showSettings, setShowSettings] = useState(false);
   const [isClosing, setIsClosing] = useState(false); 
   const [internalMinimized, setInternalMinimized] = useState(isMinimized); 
 
-  const [userText, setUserText] = useState('');
   const [tempText, setTempText] = useState('');
   const [selectedFont, setSelectedFont] = useState(FONTS[0].value);
   const [fontSize, setFontSize] = useState(14); 
@@ -163,7 +166,7 @@ export const ClockWidget: React.FC<ClockWidgetProps> = ({
   };
 
   const saveSettings = () => {
-      setUserText(tempText);
+      onUserTextChange(tempText);
       setShowSettings(false);
   };
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface ScreensaverProps {
   active: boolean;
@@ -7,10 +7,18 @@ interface ScreensaverProps {
   style?: React.CSSProperties;
   bgColor?: string;
   textColor?: string;
+  userText?: string;
+}
+
+// Weather Types
+type WeatherCondition = 'clear' | 'cloudy' | 'rain' | 'snow' | 'unknown';
+interface WeatherData {
+    temp: number;
+    condition: WeatherCondition;
+    city: string;
 }
 
 // 7-Segment Haritası (0-9)
-// A: Üst, B: Sağ Üst, C: Sağ Alt, D: Alt, E: Sol Alt, F: Sol Üst, G: Orta
 const DIGIT_MAP: Record<number, string[]> = {
     0: ['A', 'B', 'C', 'D', 'E', 'F'],
     1: ['B', 'C'],
@@ -24,104 +32,213 @@ const DIGIT_MAP: Record<number, string[]> = {
     9: ['A', 'B', 'C', 'D', 'F', 'G'],
 };
 
-// Segment Pozisyonlama Stilleri
+/* 
+   GEOMETRİ VE GRID SİSTEMİ (4x7)
+   
+   Birim (u) Hesabı:
+   Genişlik = 4u, Yükseklik = 7u
+   
+   Yüzdeler:
+   Yatayda 1u = 25% (1/4)
+   Dikeyde 1u = 14.2857% (1/7)
+*/
+
+// Dikey Yüzdeler
+const H1 = '14.2857%'; // 1 birim (Kalınlık)
+const H2 = '28.5714%'; // 2 birim (Uzunluk)
+const H_POS_0 = '0%';
+const H_POS_1 = '14.2857%';
+const H_POS_3 = '42.8571%';
+const H_POS_4 = '57.1428%';
+const H_POS_6 = '85.7142%';
+
+// Yatay Yüzdeler
+const W1 = '25%'; // 1 birim (Kalınlık)
+const W2 = '50%'; // 2 birim (Uzunluk)
+const W_POS_0 = '0%';
+const W_POS_1 = '25%';
+const W_POS_3 = '75%';
+
+// Pozisyonlar
 const SEGMENT_STYLES: Record<string, React.CSSProperties> = {
-    A: { top: 0, left: '10%', right: '10%', height: '15%' }, // Üst Yatay
-    B: { top: '10%', right: 0, height: '40%', width: '15%' }, // Sağ Üst Dikey
-    C: { bottom: '10%', right: 0, height: '40%', width: '15%' }, // Sağ Alt Dikey
-    D: { bottom: 0, left: '10%', right: '10%', height: '15%' }, // Alt Yatay
-    E: { bottom: '10%', left: 0, height: '40%', width: '15%' }, // Sol Alt Dikey
-    F: { top: '10%', left: 0, height: '40%', width: '15%' }, // Sol Üst Dikey
-    G: { top: '42.5%', left: '10%', right: '10%', height: '15%' }, // Orta Yatay
+    // YATAYLAR
+    A: { top: H_POS_0, left: W_POS_1, width: W2, height: H1 }, 
+    G: { top: H_POS_3, left: W_POS_1, width: W2, height: H1 },
+    D: { top: H_POS_6, left: W_POS_1, width: W2, height: H1 },
+    
+    // DİKEYLER
+    F: { top: H_POS_1, left: W_POS_0, width: W1, height: H2 },
+    B: { top: H_POS_1, left: W_POS_3, width: W1, height: H2 },
+    E: { top: H_POS_4, left: W_POS_0, width: W1, height: H2 },
+    C: { top: H_POS_4, left: W_POS_3, width: W1, height: H2 },
+};
+
+// SIKIŞTIRMA (SQUEEZE) AYARLARI
+// Her parçayı merkeze doğru 2px itmek için transform değerleri
+const SEGMENT_TRANSFORMS: Record<string, string> = {
+    A: 'translateY(2px)',  // Aşağı
+    D: 'translateY(-2px)', // Yukarı
+    G: 'translateY(0)',    // Orta sabit
+    F: 'translateX(2px)',  // Sağa
+    E: 'translateX(2px)',  // Sağa
+    B: 'translateX(-2px)', // Sola
+    C: 'translateX(-2px)', // Sola
+};
+
+// DÖNÜŞ EKSENİ (Medallion Flip)
+// Yataylar (Horizontal) -> RotateX
+// Dikeyler (Vertical) -> RotateY
+const ROTATION_AXIS: Record<string, 'X' | 'Y'> = {
+    A: 'X', G: 'X', D: 'X',
+    F: 'Y', B: 'Y', E: 'Y', C: 'Y'
 };
 
 const Segment: React.FC<{ 
     id: string; 
     active: boolean; 
     color: string; 
-    bgColor: string; 
+    bgColor: string;
 }> = ({ id, active, color, bgColor }) => {
     
-    // Parçanın şekli (Dikey veya Yatay için köşe yuvarlatma)
-    const isVertical = ['B', 'C', 'E', 'F'].includes(id);
-    const borderRadius = isVertical ? '4px' : '4px';
+    // Aktif değilse arkasını dön (180 derece)
+    // Yataylar aşağı (X), Dikeyler sola (Y) döner.
+    const axis = ROTATION_AXIS[id];
+    const rotateVal = active ? '0deg' : '-180deg';
+    const transformString = `rotate${axis}(${rotateVal})`;
 
     return (
         <div 
-            className="absolute perspective-500"
+            className="absolute"
             style={{ 
                 ...SEGMENT_STYLES[id], 
-                zIndex: 10
+                zIndex: 10,
+                perspective: '1200px', // 3D derinlik algısı arttırıldı
             }}
         >
-            <div 
-                className="relative w-full h-full transition-transform duration-700 ease-in-out transform-style-3d"
+             {/* 
+                FLIPPER CONTAINER 
+                Transform ve Squeeze burada uygulanır.
+             */}
+             <div 
+                className="w-full h-full relative transition-transform duration-700 cubic-bezier(0.4, 0.0, 0.2, 1)"
                 style={{
-                    transform: active ? 'rotateX(0deg)' : 'rotateX(180deg)'
+                    transformStyle: 'preserve-3d',
+                    transform: `${SEGMENT_TRANSFORMS[id]} ${transformString}`
                 }}
-            >
-                {/* ÖN YÜZ (AKTİF - Kabartmalı) */}
+             >
+                {/* --- ÖN YÜZ (Active Color) --- */}
                 <div 
-                    className="absolute inset-0 backface-hidden flex items-center justify-center"
+                    className="absolute inset-[0.5px] rounded-[4px] border border-white/10" // Inset azaltılarak daha kalın görünüm
                     style={{
+                        backfaceVisibility: 'hidden',
                         backgroundColor: color,
-                        borderRadius: borderRadius,
-                        // Kabartma Efekti: Sağ-Alt gölge, Sol-Üst parlaklık
+                        // 3D KABARTMA (EMBOSS) EFEKTİ
                         boxShadow: `
-                            4px 4px 8px rgba(0,0,0,0.5), 
-                            inset 1px 1px 2px rgba(255,255,255,0.4),
-                            inset -1px -1px 2px rgba(0,0,0,0.2)
-                        `
+                            inset 2px 2px 4px rgba(255,255,255,0.4), 
+                            inset -2px -2px 4px rgba(0,0,0,0.4),
+                            0 0 10px ${color}66
+                        `,
+                        zIndex: 2
                     }}
                 >
-                    {/* Hafif doku efekti */}
-                    <div className="w-full h-full opacity-20 bg-[linear-gradient(45deg,transparent_25%,rgba(0,0,0,0.5)_25%,rgba(0,0,0,0.5)_50%,transparent_50%,transparent_75%,rgba(0,0,0,0.5)_75%,rgba(0,0,0,0.5)_100%)] bg-[length:4px_4px]" />
+                     {/* Hafif parlama efekti */}
+                     <div className="absolute inset-0 bg-gradient-to-br from-white/30 to-transparent rounded-[4px] pointer-events-none"></div>
                 </div>
 
-                {/* ARKA YÜZ (PASİF - Arka Planla Uyumlu) */}
+                {/* --- ARKA YÜZ (Background Color) --- */}
                 <div 
-                    className="absolute inset-0 backface-hidden"
+                    className="absolute inset-[0.5px] rounded-[4px]" // Inset azaltıldı
                     style={{
-                        backgroundColor: bgColor,
-                        borderRadius: borderRadius,
-                        transform: 'rotateX(180deg)',
-                        // Gömülme hissi için hafif iç gölge
-                        boxShadow: 'inset 2px 2px 5px rgba(0,0,0,0.3)',
-                        border: '1px solid rgba(255,255,255,0.05)'
+                        backfaceVisibility: 'hidden',
+                        backgroundColor: bgColor, // Tamamen arka plan rengi
+                        transform: `rotate${axis}(180deg)`, // Arka yüzü ters çevirip yerine oturtuyoruz
+                        zIndex: 1,
                     }}
                 />
-            </div>
+             </div>
         </div>
     );
 };
 
-const Digit: React.FC<{ value: number; color: string; bgColor: string }> = ({ value, color, bgColor }) => {
+const Digit: React.FC<{ value: number; color: string; bgColor: string; size: string }> = ({ value, color, bgColor, size }) => {
     const activeSegments = DIGIT_MAP[value] || [];
 
+    // Aspect Ratio 4/7 (~0.5714)
     return (
-        <div className="relative w-[12vw] h-[20vw] max-w-[120px] max-h-[200px] mx-2">
+        <div 
+            className="relative inline-block mx-[0.5vmin]"
+            style={{
+                width: `calc(${size} * 0.5714)`, 
+                height: size,
+            }}
+        >
             {['A', 'B', 'C', 'D', 'E', 'F', 'G'].map((seg) => (
                 <Segment 
                     key={seg} 
                     id={seg} 
                     active={activeSegments.includes(seg)} 
                     color={color} 
-                    bgColor={bgColor} 
+                    bgColor={bgColor}
                 />
             ))}
         </div>
     );
 };
 
+const AnimatedWeatherIcon: React.FC<{ condition: WeatherCondition, color: string }> = ({ condition, color }) => {
+    if (condition === 'clear') {
+        return (
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" className="overflow-visible">
+                <g className="origin-center animate-spin-slow-custom">
+                    <circle cx="12" cy="12" r="5" fill={color} fillOpacity="0.2" stroke={color} strokeWidth="1.5" />
+                    <path d="M12 2V4 M12 20V22 M4.93 4.93L6.34 6.34 M17.66 17.66L19.07 19.07 M2 12H4 M20 12H22 M4.93 19.07L6.34 17.66 M17.66 6.34L19.07 4.93" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+                </g>
+            </svg>
+        );
+    }
+    if (condition === 'cloudy') {
+        return (
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" className="overflow-visible">
+                <path d="M16 19H7a4 4 0 0 1 0-8 3 3 0 0 1 3-3 4.5 4.5 0 0 1 5.6 1.5 2.5 2.5 0 0 1 .4 4.5" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="animate-cloud-drift-1" fill={color} fillOpacity="0.1" />
+                <path d="M19 12H18.5" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+                <path d="M14 17H19a3 3 0 0 0 0-6 2.5 2.5 0 0 0-3.5 1" stroke={color} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" className="animate-cloud-drift-2 opacity-70" />
+            </svg>
+        );
+    }
+    if (condition === 'rain') {
+        return (
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" className="overflow-visible">
+                <path d="M16 16H7a4 4 0 0 1 0-8 3 3 0 0 1 3-3 4.5 4.5 0 0 1 5.6 1.5 2.5 2.5 0 0 1 2.4 4.5" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill={color} fillOpacity="0.1" />
+                <line x1="8" y1="18" x2="8" y2="22" stroke={color} strokeWidth="1.5" strokeLinecap="round" className="animate-rain-fall-1" />
+                <line x1="12" y1="18" x2="12" y2="22" stroke={color} strokeWidth="1.5" strokeLinecap="round" className="animate-rain-fall-2" />
+                <line x1="16" y1="18" x2="16" y2="22" stroke={color} strokeWidth="1.5" strokeLinecap="round" className="animate-rain-fall-3" />
+            </svg>
+        );
+    }
+    if (condition === 'snow') {
+        return (
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" className="overflow-visible">
+                <path d="M16 16H7a4 4 0 0 1 0-8 3 3 0 0 1 3-3 4.5 4.5 0 0 1 5.6 1.5 2.5 2.5 0 0 1 2.4 4.5" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill={color} fillOpacity="0.1" />
+                <circle cx="8" cy="20" r="1" fill={color} className="animate-snow-fall-1" />
+                <circle cx="12" cy="20" r="1" fill={color} className="animate-snow-fall-2" />
+                <circle cx="16" cy="20" r="1" fill={color} className="animate-snow-fall-3" />
+            </svg>
+        );
+    }
+    return null;
+}
+
 export const Screensaver: React.FC<ScreensaverProps> = ({ 
   active, 
   onClick, 
   className, 
   style,
-  bgColor = '#111111',
-  textColor = '#ff0000'
+  bgColor = '#000000',
+  textColor = '#ff0000',
+  userText
 }) => {
   const [time, setTime] = useState(new Date());
+  const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
 
   useEffect(() => {
     if (!active) return;
@@ -129,92 +246,158 @@ export const Screensaver: React.FC<ScreensaverProps> = ({
     return () => clearInterval(timer);
   }, [active]);
 
+  // Hava Durumu Fetch Logic
+  useEffect(() => {
+    if (!active) return;
+    
+    // Konum varsa veriyi çek
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            async (position) => {
+                try {
+                    const { latitude, longitude } = position.coords;
+                    
+                    // Weather Data
+                    const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current_weather=true`);
+                    const weatherJson = await weatherRes.json();
+                    
+                    // City Name
+                    const cityRes = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`);
+                    const cityJson = await cityRes.json();
+
+                    const code = weatherJson.current_weather.weathercode;
+                    let condition: WeatherCondition = 'clear';
+                    if (code >= 1 && code <= 3) condition = 'cloudy';
+                    else if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) condition = 'rain';
+                    else if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) condition = 'snow';
+                    else if (code > 3) condition = 'cloudy';
+
+                    let cityName = cityJson.city || cityJson.locality || "LOC";
+                    cityName = cityName.substring(0, 3).toUpperCase();
+
+                    setWeatherData({
+                        temp: weatherJson.current_weather.temperature,
+                        condition: condition,
+                        city: cityName
+                    });
+                } catch (error) {
+                    console.error("Screensaver weather fetch error", error);
+                }
+            },
+            () => console.warn("Location permission needed for screensaver weather")
+        );
+    }
+  }, [active]);
+
   const hours = time.getHours();
   const minutes = time.getMinutes();
   const seconds = time.getSeconds();
 
-  const h1 = Math.floor(hours / 10);
-  const h2 = hours % 10;
-  const m1 = Math.floor(minutes / 10);
-  const m2 = minutes % 10;
-  const s1 = Math.floor(seconds / 10);
-  const s2 = seconds % 10;
+  const dayName = time.toLocaleDateString('tr-TR', { weekday: 'long' });
+  const dateStr = time.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
 
-  // Arka Plan Deseni (Grid 8'ler)
-  // Bu SVG, sönük bir 8 rakamını temsil eder ve tüm ekranı kaplar.
-  const bgPattern = useMemo(() => {
-      // SVG encoded as Data URI
-      const stroke = encodeURIComponent(textColor); 
-      // Opacity düşük tutularak arka plan dokusu oluşturulur
-      return `data:image/svg+xml,%3Csvg width='40' height='70' viewBox='0 0 40 70' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='${stroke}' stroke-opacity='0.05' stroke-width='2'%3E%3Cpath d='M5 5 h30 l-5 30 h-20 z' /%3E%3Cpath d='M5 35 h30 l-5 30 h-20 z' /%3E%3C/g%3E%3C/svg%3E`;
-  }, [textColor]);
+  // 3 KAT BÜYÜKLÜK (Daha önce 18vmin idi, şimdi 40vmin olarak ayarlandı)
+  const digitSize = "40vmin";
+
+  // Renk Kontrolleri
+  const isDefaultBlack = bgColor.toLowerCase() === '#000000' || bgColor.toLowerCase() === '#000';
+  const effectiveBgColor = isDefaultBlack ? '#000000' : bgColor;
 
   return (
     <div 
       className={`absolute inset-0 flex flex-col items-center justify-center cursor-pointer overflow-hidden select-none z-[100] ${className || ''}`}
       style={{
           ...style,
-          backgroundColor: bgColor,
+          backgroundColor: effectiveBgColor
       }}
       onClick={onClick}
     >
+      {/* Animasyonlar için Style */}
       <style>{`
-        .transform-style-3d { transform-style: preserve-3d; }
-        .backface-hidden { backface-visibility: hidden; }
-        .perspective-500 { perspective: 500px; }
+        @keyframes spin-slow-custom { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .animate-spin-slow-custom { animation: spin-slow-custom 12s linear infinite; }
+        @keyframes cloud-drift { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(2px); } }
+        .animate-cloud-drift-1 { animation: cloud-drift 4s ease-in-out infinite; }
+        .animate-cloud-drift-2 { animation: cloud-drift 5s ease-in-out infinite reverse; }
+        @keyframes rain-fall { 0% { transform: translateY(0); opacity: 0; } 50% { opacity: 1; } 100% { transform: translateY(4px); opacity: 0; } }
+        .animate-rain-fall-1 { animation: rain-fall 1s linear infinite; animation-delay: 0s; }
+        .animate-rain-fall-2 { animation: rain-fall 1s linear infinite; animation-delay: 0.3s; }
+        .animate-rain-fall-3 { animation: rain-fall 1s linear infinite; animation-delay: 0.6s; }
+        @keyframes snow-fall { 0% { transform: translateY(0); opacity: 0; } 50% { opacity: 1; } 100% { transform: translateY(4px); opacity: 0; } }
+        .animate-snow-fall-1 { animation: snow-fall 2s linear infinite; animation-delay: 0s; }
+        .animate-snow-fall-2 { animation: snow-fall 2.5s linear infinite; animation-delay: 0.5s; }
+        .animate-snow-fall-3 { animation: snow-fall 2.2s linear infinite; animation-delay: 1s; }
       `}</style>
 
-      {/* ARKA PLAN DOKUSU (Saç Örgüsü / Grid Gibi) */}
-      <div 
-        className="absolute inset-0 pointer-events-none opacity-50"
-        style={{
-            backgroundImage: `url("${bgPattern}")`,
-            backgroundSize: '40px 70px', // Küçük digitler
-            backgroundPosition: 'center'
-        }}
-      />
-      
-      {/* Vinyet Efekti */}
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(0,0,0,0.8)_100%)] pointer-events-none" />
+      {/* --- HAVA DURUMU WIDGET (SAĞ ÜST) --- */}
+      {weatherData && (
+          <div className="absolute top-10 right-10 flex flex-col items-center animate-in fade-in zoom-in duration-1000">
+              <AnimatedWeatherIcon condition={weatherData.condition} color={textColor} />
+              <div className="flex flex-col items-center mt-2" style={{ color: textColor }}>
+                  <span className="text-4xl font-bold font-mono tracking-tighter">{Math.round(weatherData.temp)}°C</span>
+                  <span className="text-2xl font-mono opacity-80">{weatherData.city}</span>
+              </div>
+          </div>
+      )}
 
-      {/* SAAT KONTEYNERİ */}
-      <div className="relative z-10 flex items-center gap-4 p-10 rounded-3xl backdrop-blur-sm bg-black/20 shadow-2xl border border-white/5">
+      {/* --- ANA SAAT KONTEYNERİ --- */}
+      <div className="relative z-10 flex flex-col items-center justify-center gap-2 p-8">
          
-         {/* SAAT */}
-         <div className="flex gap-1">
-             <Digit value={h1} color={textColor} bgColor={bgColor} />
-             <Digit value={h2} color={textColor} bgColor={bgColor} />
+         {/* DİJİTAL SAAT */}
+         <div className="flex items-center gap-4 sm:gap-6 mb-8">
+            {/* SAAT */}
+            <div className="flex">
+                <Digit value={Math.floor(hours / 10)} color={textColor} bgColor={effectiveBgColor} size={digitSize} />
+                <Digit value={hours % 10} color={textColor} bgColor={effectiveBgColor} size={digitSize} />
+            </div>
+
+            {/* AYIRAÇ */}
+            <div className="flex flex-col gap-[3vmin] mx-2 justify-center opacity-80" style={{ height: digitSize }}>
+                <div className="w-[3vmin] h-[3vmin] rounded-full" style={{ backgroundColor: textColor, boxShadow: `0 0 20px ${textColor}` }} />
+                <div className="w-[3vmin] h-[3vmin] rounded-full" style={{ backgroundColor: textColor, boxShadow: `0 0 20px ${textColor}` }} />
+            </div>
+
+            {/* DAKİKA */}
+            <div className="flex">
+                <Digit value={Math.floor(minutes / 10)} color={textColor} bgColor={effectiveBgColor} size={digitSize} />
+                <Digit value={minutes % 10} color={textColor} bgColor={effectiveBgColor} size={digitSize} />
+            </div>
+
+            {/* AYIRAÇ */}
+            <div className="flex flex-col gap-[3vmin] mx-2 justify-center opacity-80" style={{ height: digitSize }}>
+                <div className="w-[3vmin] h-[3vmin] rounded-full" style={{ backgroundColor: textColor, boxShadow: `0 0 20px ${textColor}` }} />
+                <div className="w-[3vmin] h-[3vmin] rounded-full" style={{ backgroundColor: textColor, boxShadow: `0 0 20px ${textColor}` }} />
+            </div>
+
+            {/* SANİYE */}
+            <div className="flex">
+                <Digit value={Math.floor(seconds / 10)} color={textColor} bgColor={effectiveBgColor} size={digitSize} />
+                <Digit value={seconds % 10} color={textColor} bgColor={effectiveBgColor} size={digitSize} />
+            </div>
          </div>
 
-         {/* AYIRAÇ (Noktalar) */}
-         <div className="flex flex-col gap-8 mx-2 opacity-80 animate-pulse">
-             <div className="w-4 h-4 rounded-full" style={{ backgroundColor: textColor, boxShadow: '2px 2px 4px rgba(0,0,0,0.5)' }} />
-             <div className="w-4 h-4 rounded-full" style={{ backgroundColor: textColor, boxShadow: '2px 2px 4px rgba(0,0,0,0.5)' }} />
-         </div>
+         {/* --- BİLGİ ALANI (GÜN, TARİH, METİN) --- */}
+         <div className="flex flex-col items-center gap-4 w-full text-center" style={{ color: textColor }}>
+             {/* GÜN ADI */}
+             <div className="text-6xl md:text-8xl font-bold tracking-wide uppercase" style={{ textShadow: `0 0 20px ${textColor}40` }}>
+                 {dayName}
+             </div>
+             
+             {/* TAM TARİH */}
+             <div className="text-4xl md:text-6xl font-medium opacity-90 tracking-wider">
+                 {dateStr}
+             </div>
 
-         {/* DAKİKA */}
-         <div className="flex gap-1">
-             <Digit value={m1} color={textColor} bgColor={bgColor} />
-             <Digit value={m2} color={textColor} bgColor={bgColor} />
-         </div>
-
-         {/* AYIRAÇ */}
-         <div className="flex flex-col gap-8 mx-2 opacity-80 animate-pulse">
-             <div className="w-4 h-4 rounded-full" style={{ backgroundColor: textColor, boxShadow: '2px 2px 4px rgba(0,0,0,0.5)' }} />
-             <div className="w-4 h-4 rounded-full" style={{ backgroundColor: textColor, boxShadow: '2px 2px 4px rgba(0,0,0,0.5)' }} />
-         </div>
-
-         {/* SANİYE (Daha Küçük) */}
-         <div className="flex gap-1 scale-75 origin-left">
-             <Digit value={s1} color={textColor} bgColor={bgColor} />
-             <Digit value={s2} color={textColor} bgColor={bgColor} />
+             {/* KULLANICI METNİ */}
+             {userText && (
+                 <div className="text-3xl md:text-5xl font-light opacity-80 mt-4 px-4 max-w-[80vw] break-words">
+                     {userText}
+                 </div>
+             )}
          </div>
 
       </div>
       
-      <div className="absolute bottom-10 text-sm animate-pulse opacity-40 font-mono tracking-widest" style={{ color: textColor }}>
-        SİSTEM KİLİTLİ
-      </div>
     </div>
   );
 };
