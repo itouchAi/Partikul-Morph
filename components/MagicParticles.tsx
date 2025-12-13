@@ -34,6 +34,7 @@ interface MagicParticlesProps {
   // Rotation
   isAutoRotating?: boolean;
   onStopAutoRotation?: () => void;
+  cameraResetTrigger?: number; // Trigger to reset mesh rotation
 }
 
 export const MagicParticles: React.FC<MagicParticlesProps> = ({ 
@@ -60,7 +61,8 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   currentShape = 'sphere',
   visible = true,
   isAutoRotating = true,
-  onStopAutoRotation
+  onStopAutoRotation,
+  cameraResetTrigger = 0
 }) => {
   const pointsRef = useRef<THREE.Points>(null);
   const { camera, gl } = useThree();
@@ -107,6 +109,14 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
           window.removeEventListener('pointermove', handleFirstMove);
       };
   }, []);
+
+  // Reset Mesh Rotation when Camera Reset Triggered (Reset Button Pressed)
+  useEffect(() => {
+      if (cameraResetTrigger > 0 && pointsRef.current) {
+          pointsRef.current.rotation.set(0, 0, 0);
+          rotationVelocity.current.set(0, 0.005, 0); // Reset velocity to initial state
+      }
+  }, [cameraResetTrigger]);
 
   useEffect(() => {
     if (audioContextRef.current) {

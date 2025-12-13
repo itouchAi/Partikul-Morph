@@ -327,6 +327,7 @@ export const Experience: React.FC<ExperienceProps> = ({
                 visible={isSceneVisible}
                 isAutoRotating={isAutoRotating}
                 onStopAutoRotation={onStopAutoRotation}
+                cameraResetTrigger={cameraResetTrigger} // Pass trigger to reset internal rotation
               />
           )}
       </group>
