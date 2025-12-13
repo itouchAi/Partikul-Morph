@@ -61,7 +61,7 @@ export const ClockWidget: React.FC<ClockWidgetProps> = ({
   const [activeColorPicker, setActiveColorPicker] = useState<'none' | 'bg' | 'text'>('none');
 
   // --- Weather State ---
-  const [useLocation, setUseLocation] = useState(false);
+  const [useLocation, setUseLocation] = useState(true); // Varsayılan Açık
   const [tempUnit, setTempUnit] = useState<'C' | 'F'>('C');
   const [weatherData, setWeatherData] = useState<WeatherData | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
@@ -335,33 +335,37 @@ export const ClockWidget: React.FC<ClockWidgetProps> = ({
                  <div className={`font-mono tracking-tighter mb-1 text-center transition-all duration-300 whitespace-nowrap pr-4 ${textClass} vfx-item delay-1`} style={{ fontFamily: selectedFont, fontSize: `${fontSize * 3.0}px`, fontWeight: isBold ? 'bold' : 'normal', fontStyle: isItalic ? 'italic' : 'normal', lineHeight: 1.0 }}>{formatTime(time)}</div>
                  
                  {/* Alt Bölüm: Tarih ve Hava Durumu Split */}
-                 <div className={`flex items-center justify-between border-t pt-2 mb-1 w-full transition-all duration-300 ${isContrastMode ? 'border-black/10' : 'border-white/10'} vfx-item delay-2 gap-4 px-1`}>
+                 <div className={`flex items-center ${useLocation ? 'justify-between px-1' : 'justify-center'} border-t pt-2 mb-1 w-full transition-all duration-300 ${isContrastMode ? 'border-black/10' : 'border-white/10'} vfx-item delay-2 gap-4`}>
                     
                     {/* Sol: Tarih */}
-                    <div className="flex flex-col items-start">
+                    <div className={`flex flex-col ${useLocation ? 'items-start' : 'items-center'}`}>
                         <span className={`font-medium tracking-wide ${textClass} opacity-90`} style={{ fontFamily: selectedFont, fontSize: `${Math.max(10, fontSize * 0.9)}px`, fontWeight: isBold ? 'bold' : 'normal', fontStyle: isItalic ? 'italic' : 'normal' }}>{getDayName(time)}</span>
                         <span className={subTextClass} style={{ fontFamily: selectedFont, fontSize: `${Math.max(9, fontSize * 0.8)}px`, fontWeight: isBold ? 'bold' : 'normal', fontStyle: isItalic ? 'italic' : 'normal' }}>{formatDate(time)}</span>
                     </div>
 
-                    {/* Sağ: Hava Durumu */}
-                    {weatherData && (
-                        <div className="flex flex-col items-end animate-in fade-in slide-in-from-right-2 duration-700">
-                            <div className="flex items-center gap-1 mb-0.5">
-                                {renderWeatherIcon(weatherData.condition)}
-                            </div>
-                            <div className={`flex items-baseline gap-1 ${subTextClass}`} style={{ fontSize: `${Math.max(9, fontSize * 0.7)}px`, fontFamily: 'monospace' }}>
-                                <span className={`font-bold ${isContrastMode ? 'text-black' : 'text-white'}`}>
-                                    {tempUnit === 'C' ? Math.round(weatherData.temp) : Math.round(weatherData.temp * 1.8 + 32)}°{tempUnit}
-                                </span>
-                                <span className="opacity-70 tracking-tighter">{weatherData.city}</span>
-                            </div>
-                        </div>
-                    )}
-                    {weatherLoading && (
-                        <div className="flex flex-col items-end opacity-50 animate-pulse">
-                            <div className="w-5 h-5 rounded-full border-2 border-t-transparent border-current animate-spin mb-1"></div>
-                            <div className="h-2 w-8 bg-current rounded opacity-20"></div>
-                        </div>
+                    {/* Sağ: Hava Durumu (Sadece useLocation açıkken görünür) */}
+                    {useLocation && (
+                        <>
+                            {weatherData && (
+                                <div className="flex flex-col items-end animate-in fade-in slide-in-from-right-2 duration-700">
+                                    <div className="flex items-center gap-1 mb-0.5">
+                                        {renderWeatherIcon(weatherData.condition)}
+                                    </div>
+                                    <div className={`flex items-baseline gap-1 ${subTextClass}`} style={{ fontSize: `${Math.max(9, fontSize * 0.7)}px`, fontFamily: 'monospace' }}>
+                                        <span className={`font-bold ${isContrastMode ? 'text-black' : 'text-white'}`}>
+                                            {tempUnit === 'C' ? Math.round(weatherData.temp) : Math.round(weatherData.temp * 1.8 + 32)}°{tempUnit}
+                                        </span>
+                                        <span className="opacity-70 tracking-tighter">{weatherData.city}</span>
+                                    </div>
+                                </div>
+                            )}
+                            {weatherLoading && (
+                                <div className="flex flex-col items-end opacity-50 animate-pulse">
+                                    <div className="w-5 h-5 rounded-full border-2 border-t-transparent border-current animate-spin mb-1"></div>
+                                    <div className="h-2 w-8 bg-current rounded opacity-20"></div>
+                                </div>
+                            )}
+                        </>
                     )}
                  </div>
 

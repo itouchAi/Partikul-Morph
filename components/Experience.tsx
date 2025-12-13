@@ -33,6 +33,10 @@ interface ExperienceProps {
   currentShape?: ShapeType;
   cameraResetTrigger?: number; 
   isSceneVisible?: boolean;
+  
+  // NEW: Rotation Props
+  isAutoRotating?: boolean;
+  onStopAutoRotation?: () => void;
 }
 
 const DrawingPlane3D: React.FC<{
@@ -242,7 +246,9 @@ export const Experience: React.FC<ExperienceProps> = ({
   clearCanvasTrigger,
   currentShape = 'sphere',
   cameraResetTrigger = 0,
-  isSceneVisible = true
+  isSceneVisible = true,
+  isAutoRotating = true,
+  onStopAutoRotation
 }) => {
   const controlsRef = useRef<any>(null);
   const objectGroupRef = useRef<THREE.Group>(null);
@@ -319,6 +325,8 @@ export const Experience: React.FC<ExperienceProps> = ({
                 canvasRotation={canvasRotation}
                 currentShape={currentShape}
                 visible={isSceneVisible}
+                isAutoRotating={isAutoRotating}
+                onStopAutoRotation={onStopAutoRotation}
               />
           )}
       </group>

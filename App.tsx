@@ -71,6 +71,7 @@ const App: React.FC = () => {
   const [particleSize, setParticleSize] = useState<number>(20); 
   const [modelDensity, setModelDensity] = useState<number>(50); 
   const [isUIInteraction, setIsUIInteraction] = useState<boolean>(false);
+  const [isAutoRotating, setIsAutoRotating] = useState<boolean>(false); // Varsayılan kapalı
 
   // --- Screensaver State ---
   const [ssState, setSsState] = useState<ScreensaverState>('idle');
@@ -250,7 +251,7 @@ const App: React.FC = () => {
   const handleClearCanvas = () => { setClearCanvasTrigger(prev => prev + 1); };
   const handleShapeChange = (shape: ShapeType) => { setCurrentShape(shape); setCurrentText(''); setImageSourceXY(null); setImageSourceYZ(null); setUseImageColors(false); setDepthIntensity(0); setIsSceneVisible(true); };
   const handleResetAll = () => {
-    setCurrentText(''); setParticleColor('#ffffff'); setImageSourceXY(null); setImageSourceYZ(null); setUseImageColors(false); setDepthIntensity(0); setActivePreset('none'); setAudioMode('none'); setAudioUrl(null); setAudioTitle(null); setIsPlaying(true); setRepulsionStrength(50); setRepulsionRadius(50); setParticleCount(40000); setParticleSize(20); setModelDensity(50); setIsDrawing(false); setCanvasRotation([0, 0, 0]); setCurrentShape('sphere'); setCameraResetTrigger(prev => prev + 1); setBgMode('dark'); setIsSceneVisible(true); setBgImage(null); setCroppedBgImage(null); setSlideshowSettings(prev => ({...prev, active: false}));
+    setCurrentText(''); setParticleColor('#ffffff'); setImageSourceXY(null); setImageSourceYZ(null); setUseImageColors(false); setDepthIntensity(0); setActivePreset('none'); setAudioMode('none'); setAudioUrl(null); setAudioTitle(null); setIsPlaying(true); setRepulsionStrength(50); setRepulsionRadius(50); setParticleCount(40000); setParticleSize(20); setModelDensity(50); setIsDrawing(false); setCanvasRotation([0, 0, 0]); setCurrentShape('sphere'); setCameraResetTrigger(prev => prev + 1); setBgMode('dark'); setIsSceneVisible(true); setBgImage(null); setCroppedBgImage(null); setSlideshowSettings(prev => ({...prev, active: false})); setIsAutoRotating(false);
   };
   const rotateCanvasX = () => setCanvasRotation(prev => [prev[0] + Math.PI / 2, prev[1], prev[2]]);
   const rotateCanvasY = () => setCanvasRotation(prev => [prev[0], prev[1] + Math.PI / 2, prev[2]]);
@@ -549,10 +550,103 @@ const App: React.FC = () => {
             />
 
             <div className="absolute inset-0 z-10">
-                <Experience text={currentText} imageXY={imageSourceXY} imageYZ={imageSourceYZ} useImageColors={useImageColors} particleColor={particleColor} disableInteraction={isUIInteraction} depthIntensity={depthIntensity} repulsionStrength={repulsionStrength} repulsionRadius={repulsionRadius} particleCount={particleCount} particleSize={particleSize} modelDensity={modelDensity} activePreset={activePreset} audioMode={audioMode} audioUrl={audioUrl} isPlaying={isPlaying} volume={volume} isDrawing={isDrawing} brushSize={brushSize} getDrawingDataRef={getDrawingDataRef} canvasRotation={canvasRotation} clearCanvasTrigger={clearCanvasTrigger} currentShape={currentShape} cameraResetTrigger={cameraResetTrigger} isSceneVisible={isSceneVisible} />
+                <Experience 
+                  text={currentText} 
+                  imageXY={imageSourceXY} 
+                  imageYZ={imageSourceYZ} 
+                  useImageColors={useImageColors} 
+                  particleColor={particleColor} 
+                  disableInteraction={isUIInteraction} 
+                  depthIntensity={depthIntensity} 
+                  repulsionStrength={repulsionStrength} 
+                  repulsionRadius={repulsionRadius} 
+                  particleCount={particleCount} 
+                  particleSize={particleSize} 
+                  modelDensity={modelDensity} 
+                  activePreset={activePreset} 
+                  audioMode={audioMode} 
+                  audioUrl={audioUrl} 
+                  isPlaying={isPlaying} 
+                  volume={volume} 
+                  isDrawing={isDrawing} 
+                  brushSize={brushSize} 
+                  getDrawingDataRef={getDrawingDataRef} 
+                  canvasRotation={canvasRotation} 
+                  clearCanvasTrigger={clearCanvasTrigger} 
+                  currentShape={currentShape} 
+                  cameraResetTrigger={cameraResetTrigger} 
+                  isSceneVisible={isSceneVisible}
+                  isAutoRotating={isAutoRotating} // NEW PROP
+                  onStopAutoRotation={() => setIsAutoRotating(false)} // NEW PROP
+                />
             </div>
             
-            <UIOverlay onSubmit={handleTextSubmit} onImageUpload={handleImageUpload} onDrawingStart={handleDrawingStart} onDrawingConfirm={handleDrawingConfirm} isDrawing={isDrawing} brushSize={brushSize} onBrushSizeChange={setBrushSize} canvasRotation={canvasRotation} onRotateX={rotateCanvasX} onRotateY={rotateCanvasY} onRotateZ={rotateCanvasZ} currentColor={particleColor} onColorChange={handleColorChange} onResetColors={handleResetColors} isOriginalColors={useImageColors} onInteractionStart={() => setIsUIInteraction(true)} onInteractionEnd={() => setIsUIInteraction(false)} hasImage={!!imageSourceXY || !!imageSourceYZ} depthIntensity={depthIntensity} onDepthChange={setDepthIntensity} repulsionStrength={repulsionStrength} onRepulsionChange={setRepulsionStrength} repulsionRadius={repulsionRadius} onRadiusChange={setRepulsionRadius} particleCount={particleCount} onParticleCountChange={setParticleCount} particleSize={particleSize} onParticleSizeChange={setParticleSize} modelDensity={modelDensity} onModelDensityChange={setModelDensity} activePreset={activePreset} onPresetChange={setActivePreset} onAudioChange={handleAudioChange} audioMode={audioMode} audioTitle={audioTitle} isPlaying={isPlaying} onTogglePlay={() => setIsPlaying(!isPlaying)} volume={volume} onVolumeChange={setVolume} onResetAll={handleResetAll} onClearCanvas={handleClearCanvas} bgMode={bgMode} onBgModeChange={handleBgModeChange} onBgImageConfirm={(img, style) => {}} customBgColor={customBgColor} currentShape={currentShape} onShapeChange={handleShapeChange} isWidgetMinimized={isWidgetMinimized} isUIHidden={isUIHidden} onToggleUI={() => setIsUIHidden(!isUIHidden)} isSceneVisible={isSceneVisible} onToggleScene={() => setIsSceneVisible(!isSceneVisible)} bgImages={bgImages} onBgImagesAdd={handleBgImagesAdd} onBgImageSelect={handleBgImageSelectFromDeck} onBgImageStyleChange={handleBgImageStyleChange} bgImageStyle={bgImageStyle} onRemoveBgImage={handleRemoveBgImage} onBgTransformChange={handleApplyCrop} onResetDeck={handleDeckReset} slideshowSettings={slideshowSettings} onSlideshowSettingsChange={setSlideshowSettings} />
+            <UIOverlay 
+              onSubmit={handleTextSubmit} 
+              onImageUpload={handleImageUpload} 
+              onDrawingStart={handleDrawingStart} 
+              onDrawingConfirm={handleDrawingConfirm} 
+              isDrawing={isDrawing} 
+              brushSize={brushSize} 
+              onBrushSizeChange={setBrushSize} 
+              canvasRotation={canvasRotation} 
+              onRotateX={rotateCanvasX} 
+              onRotateY={rotateCanvasY} 
+              onRotateZ={rotateCanvasZ} 
+              currentColor={particleColor} 
+              onColorChange={handleColorChange} 
+              onResetColors={handleResetColors} 
+              isOriginalColors={useImageColors} 
+              onInteractionStart={() => setIsUIInteraction(true)} 
+              onInteractionEnd={() => setIsUIInteraction(false)} 
+              hasImage={!!imageSourceXY || !!imageSourceYZ} 
+              depthIntensity={depthIntensity} 
+              onDepthChange={setDepthIntensity} 
+              repulsionStrength={repulsionStrength} 
+              onRepulsionChange={setRepulsionStrength} 
+              repulsionRadius={repulsionRadius} 
+              onRadiusChange={setRepulsionRadius} 
+              particleCount={particleCount} 
+              onParticleCountChange={setParticleCount} 
+              particleSize={particleSize} 
+              onParticleSizeChange={setParticleSize} 
+              modelDensity={modelDensity} 
+              onModelDensityChange={setModelDensity} 
+              activePreset={activePreset} 
+              onPresetChange={setActivePreset} 
+              onAudioChange={handleAudioChange} 
+              audioMode={audioMode} 
+              audioTitle={audioTitle} 
+              isPlaying={isPlaying} 
+              onTogglePlay={() => setIsPlaying(!isPlaying)} 
+              volume={volume} 
+              onVolumeChange={setVolume} 
+              onResetAll={handleResetAll} 
+              onClearCanvas={handleClearCanvas} 
+              bgMode={bgMode} 
+              onBgModeChange={handleBgModeChange} 
+              onBgImageConfirm={(img, style) => {}} 
+              customBgColor={customBgColor} 
+              currentShape={currentShape} 
+              onShapeChange={handleShapeChange} 
+              isWidgetMinimized={isWidgetMinimized} 
+              isUIHidden={isUIHidden} 
+              onToggleUI={() => setIsUIHidden(!isUIHidden)} 
+              isSceneVisible={isSceneVisible} 
+              onToggleScene={() => setIsSceneVisible(!isSceneVisible)} 
+              bgImages={bgImages} 
+              onBgImagesAdd={handleBgImagesAdd} 
+              onBgImageSelect={handleBgImageSelectFromDeck} 
+              onBgImageStyleChange={handleBgImageStyleChange} 
+              bgImageStyle={bgImageStyle} 
+              onRemoveBgImage={handleRemoveBgImage} 
+              onBgTransformChange={handleApplyCrop} 
+              onResetDeck={handleDeckReset} 
+              slideshowSettings={slideshowSettings} 
+              onSlideshowSettingsChange={setSlideshowSettings}
+              isAutoRotating={isAutoRotating} // NEW PROP
+              onToggleAutoRotation={() => setIsAutoRotating(!isAutoRotating)} // NEW PROP
+            />
           </div>
       </div>
 

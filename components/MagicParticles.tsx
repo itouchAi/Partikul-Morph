@@ -30,6 +30,10 @@ interface MagicParticlesProps {
   canvasRotation?: [number, number, number];
   currentShape?: ShapeType;
   visible?: boolean;
+  
+  // Rotation
+  isAutoRotating?: boolean;
+  onStopAutoRotation?: () => void;
 }
 
 export const MagicParticles: React.FC<MagicParticlesProps> = ({ 
@@ -54,7 +58,9 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   isDrawing,
   canvasRotation = [0, 0, 0],
   currentShape = 'sphere',
-  visible = true
+  visible = true,
+  isAutoRotating = true,
+  onStopAutoRotation
 }) => {
   const pointsRef = useRef<THREE.Points>(null);
   const { camera, gl } = useThree();
@@ -78,6 +84,10 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       targets: Float32Array | null,
       zOffsets: Float32Array | null
   }>({ targets: null, zOffsets: null });
+
+  // Auto Rotation State
+  const rotationVelocity = useRef(new THREE.Vector3(0, 0.005, 0)); // Initial rotation
+  const nextRotationChange = useRef(0);
 
   const densityScale = useMemo(() => {
      if (modelDensity <= 50) {
@@ -390,6 +400,11 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
         clickStartY = e.clientY;
         clickStartTime = Date.now();
 
+        // Stop auto rotation on click (any click on canvas)
+        if (onStopAutoRotation) {
+            onStopAutoRotation();
+        }
+
         if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
             audioContextRef.current.resume();
         }
@@ -426,7 +441,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       gl.domElement.removeEventListener('pointerdown', handlePointerDown);
       gl.domElement.removeEventListener('pointerup', handlePointerUp);
     };
-  }, [gl.domElement, simulationData, disableMouseRepulsion, repulsionStrength, particleCount, activePreset]);
+  }, [gl.domElement, simulationData, disableMouseRepulsion, repulsionStrength, particleCount, activePreset, onStopAutoRotation]);
 
   useEffect(() => {
     const { colors, originalColors } = simulationData;
@@ -709,6 +724,25 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   useFrame((state) => {
     if (isDrawing || !pointsRef.current) return;
 
+    // --- AUTO ROTATION LOGIC ---
+    if (isAutoRotating) {
+        // Change rotation direction every 3 seconds
+        if (state.clock.elapsedTime > nextRotationChange.current) {
+            nextRotationChange.current = state.clock.elapsedTime + 3;
+            // Generate random rotation speed for axes (between -0.01 and 0.01)
+            rotationVelocity.current.set(
+                (Math.random() - 0.5) * 0.02,
+                (Math.random() - 0.5) * 0.02,
+                (Math.random() - 0.5) * 0.02
+            );
+        }
+        
+        // Apply rotation
+        pointsRef.current.rotation.x += rotationVelocity.current.x;
+        pointsRef.current.rotation.y += rotationVelocity.current.y;
+        pointsRef.current.rotation.z += rotationVelocity.current.z;
+    }
+
     let isAudioActive = audioMode !== 'none';
     let avgVolume = 0;
 
@@ -724,7 +758,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
         isAudioActive = false;
     }
 
-    // Visibility Transition Logic
+    // Visibility Transition Progress (0 = visible, 1 = hidden)
     const targetVis = visible ? 0 : 1; 
     // Smooth Lerp
     visibilityProgress.current += (targetVis - visibilityProgress.current) * 0.05;
