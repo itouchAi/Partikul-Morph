@@ -1,3 +1,4 @@
+
 export type PresetType = 'none' | 'electric' | 'fire' | 'water' | 'mercury' | 'disco';
 export type AudioMode = 'none' | 'file' | 'mic';
 export type BackgroundMode = 'dark' | 'light' | 'image' | 'color' | 'gradient' | 'auto';
@@ -12,4 +13,10 @@ export interface SlideshowSettings {
     duration: number; // seconds
     order: SlideshowOrder;
     transition: SlideshowTransition;
+}
+
+export interface LyricLine {
+    text: string;
+    start: number; // saniye cinsinden
+    end: number;   // saniye cinsinden
 }

@@ -48,7 +48,7 @@ interface UIOverlayProps {
   activePreset: PresetType;
   onPresetChange: (preset: PresetType) => void;
   // Ses
-  onAudioChange: (mode: AudioMode, url: string | null, title?: string) => void;
+  onAudioChange: (mode: AudioMode, url: string | null, title?: string, lang?: string) => void;
   audioMode: AudioMode;
   audioTitle?: string | null;
   isPlaying?: boolean;
@@ -181,6 +181,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   const [showAudioModal, setShowAudioModal] = useState(false);
   
   const [useOriginalImageColors, setUseOriginalImageColors] = useState(true);
+  const [selectedLanguage, setSelectedLanguage] = useState('turkish');
 
   // Müzik Çalar Ayarları
   const [showMusicSettings, setShowMusicSettings] = useState(false);
@@ -352,7 +353,7 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
     if (file) {
         const url = URL.createObjectURL(file);
         // Dosya ismini al
-        onAudioChange('file', url, file.name);
+        onAudioChange('file', url, file.name, selectedLanguage);
         setShowAudioModal(false);
         onInteractionEnd();
     }
@@ -1110,8 +1111,19 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                <h3 className="text-white font-mono text-lg text-center">Ses Kaynağı Seçin</h3>
                <p className="text-gray-400 text-xs text-center">Partiküller seçtiğiniz müziğin ritmine göre dans edecek.</p>
              </div>
+
+             {/* Dil Seçimi */}
+             <div className="mb-6">
+                 <label className="text-[10px] text-gray-400 block mb-2 font-mono uppercase tracking-wider text-center">Analiz Dili</label>
+                 <div className="flex bg-black/40 p-1 rounded-lg border border-white/10">
+                     <button onClick={() => setSelectedLanguage('auto')} className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all ${selectedLanguage === 'auto' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>Otomatik</button>
+                     <button onClick={() => setSelectedLanguage('turkish')} className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all ${selectedLanguage === 'turkish' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>Türkçe</button>
+                     <button onClick={() => setSelectedLanguage('english')} className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all ${selectedLanguage === 'english' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'}`}>English</button>
+                 </div>
+             </div>
+
              <div className="flex gap-3">
-                <button onClick={() => { onAudioChange('mic', null, 'Mikrofon Girişi'); setShowAudioModal(false); onInteractionEnd(); }} className="flex-1 py-3 rounded-lg bg-white/10 text-white/90 hover:bg-white/20 hover:text-white transition-colors font-bold text-sm border border-white/10">Mikrofon</button>
+                <button onClick={() => { onAudioChange('mic', null, 'Mikrofon Girişi', selectedLanguage); setShowAudioModal(false); onInteractionEnd(); }} className="flex-1 py-3 rounded-lg bg-white/10 text-white/90 hover:bg-white/20 hover:text-white transition-colors font-bold text-sm border border-white/10">Mikrofon</button>
                 <button onClick={() => audioInputRef.current?.click()} className="flex-1 py-3 rounded-lg bg-green-600 text-white hover:bg-green-500 transition-colors font-bold text-sm shadow-lg shadow-green-900/50">Dosya Seç</button>
              </div>
              <div className="mt-3">

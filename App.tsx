@@ -3,7 +3,8 @@ import { Experience } from './components/Experience';
 import { UIOverlay } from './components/UIOverlay';
 import { ClockWidget } from './components/ClockWidget';
 import { Screensaver } from './components/Screensaver';
-import { PresetType, AudioMode, BackgroundMode, BgImageStyle, ShapeType, SlideshowSettings } from './types';
+import { LyricsBox } from './components/LyricsBox';
+import { PresetType, AudioMode, BackgroundMode, BgImageStyle, ShapeType, SlideshowSettings, LyricLine } from './types';
 
 // Ekran Koruyucu Durumları (Kesin Sıralı - 5 Adım)
 type ScreensaverState = 
@@ -21,6 +22,51 @@ type ScreensaverState =
     'x3_ss_slide_down' | // 3. SS aşağı kayma
     'x4_app_expand' |    // 4. Ana ekran büyüme - SS aşağıda kalır
     'x5_app_unblur';     // 5. Ana ekran netleşme
+
+// --- WORKER KODU (String olarak) ---
+// Not: Worker içinde importmap çalışmaz, bu yüzden tam CDN URL kullanıyoruz.
+const WORKER_CODE = `
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.16.0/dist/transformers.min.js';
+
+// Skip local model checks
+env.allowLocalModels = false;
+env.useBrowserCache = true;
+
+let transcriber = null;
+
+self.addEventListener('message', async (event) => {
+    const { audio, language } = event.data;
+
+    try {
+        if (!transcriber) {
+            self.postMessage({ status: 'loading_model' });
+            // Whisper Base modelini yükle (Daha hassas, yaklaşık 200MB)
+            transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-base');
+            self.postMessage({ status: 'model_ready' });
+        }
+
+        self.postMessage({ status: 'transcribing' });
+
+        // Dil ayarını belirle
+        // 'auto' ise null gönderilir (model kendisi algılar)
+        const targetLang = (language === 'auto' || !language) ? null : language;
+
+        // Analizi başlat
+        const output = await transcriber(audio, {
+            chunk_length_s: 30,
+            stride_length_s: 5,
+            language: targetLang, 
+            task: 'transcribe',
+            return_timestamps: true,
+        });
+
+        self.postMessage({ status: 'complete', output });
+
+    } catch (error) {
+        self.postMessage({ status: 'error', error: error.message });
+    }
+});
+`;
 
 const App: React.FC = () => {
   const [currentText, setCurrentText] = useState<string>('');
@@ -71,7 +117,18 @@ const App: React.FC = () => {
   const [particleSize, setParticleSize] = useState<number>(20); 
   const [modelDensity, setModelDensity] = useState<number>(50); 
   const [isUIInteraction, setIsUIInteraction] = useState<boolean>(false);
-  const [isAutoRotating, setIsAutoRotating] = useState<boolean>(false); // Varsayılan kapalı
+  const [isAutoRotating, setIsAutoRotating] = useState<boolean>(false);
+
+  // --- Lyrics & Analysis State ---
+  const [lyrics, setLyrics] = useState<LyricLine[]>([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState<string>('Hazırlanıyor...');
+  const [showLyrics, setShowLyrics] = useState(false);
+  const [audioCurrentTime, setAudioCurrentTime] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const workerRef = useRef<Worker | null>(null);
+  const hiddenAudioRef = useRef<HTMLAudioElement>(null); 
+  const [isModelReady, setIsModelReady] = useState(false);
 
   // --- Screensaver State ---
   const [ssState, setSsState] = useState<ScreensaverState>('idle');
@@ -80,6 +137,224 @@ const App: React.FC = () => {
   // Screensaver Settings
   const [ssBgColor, setSsBgColor] = useState('#000000');
   const [ssTextColor, setSsTextColor] = useState('#ffffff');
+
+  // --- Initialize Worker Function ---
+  const initWorker = () => {
+      // Eğer eski worker varsa öldür (hafızayı ve kuyruğu temizle)
+      if (workerRef.current) {
+          workerRef.current.terminate();
+      }
+
+      try {
+        const blob = new Blob([WORKER_CODE], { type: 'application/javascript' });
+        const url = URL.createObjectURL(blob);
+        workerRef.current = new Worker(url, { type: 'module' });
+        
+        workerRef.current.onmessage = (event) => {
+            const { status, output, error } = event.data;
+            
+            if (status === 'loading_model') {
+                setAnalysisStatus('Daha Güçlü Model Yükleniyor (~200MB)...');
+            } else if (status === 'model_ready') {
+                setIsModelReady(true);
+                setAnalysisStatus('Gelişmiş Model Hazır, İşlem Başlıyor...');
+            } else if (status === 'transcribing') {
+                setAnalysisStatus('Sözler Yazıya Dökülüyor...');
+            } else if (status === 'complete') {
+                // --- AGGRESSIVE CLEANING LOGIC ---
+                
+                const rawChunks = output.chunks || [];
+                const formattedLyrics: LyricLine[] = [];
+                const rawLyrics: LyricLine[] = []; // Yedek liste
+
+                for (const chunk of rawChunks) {
+                    let text = chunk.text;
+                    const originalText = text;
+
+                    // Yedek listeye ham haliyle ekle (sadece çok kısa boşlukları temizle)
+                    if(originalText.trim().length > 1) {
+                         rawLyrics.push({
+                            text: originalText.trim(),
+                            start: chunk.timestamp[0],
+                            end: chunk.timestamp[1] || chunk.timestamp[0] + 3
+                        });
+                    }
+
+                    // 1. Remove Content in Brackets [] or Parentheses ()
+                    text = text.replace(/\[.*?\]/g, '').replace(/\(.*?\)/g, '');
+
+                    // 2. Trim whitespace
+                    text = text.trim();
+
+                    // 3. Check for Empty or very short lines
+                    if (text.length < 2) continue;
+
+                    // 4. Explicit Filter for Sound Descriptions (Case Insensitive)
+                    const lower = text.toLowerCase();
+                    if (
+                        lower === 'müzik' || lower === 'music' || 
+                        lower === 'alkış' || lower === 'applause' ||
+                        lower === 'sessizlik' || lower === 'silence' ||
+                        lower === 'altyazı' || lower === 'subtitle' ||
+                        lower === 'kuş cıvıltısı' || lower === 'rüzgar' ||
+                        lower.startsWith('altyazı')
+                    ) {
+                        continue;
+                    }
+
+                    // 5. ANTI-HALLUCINATION: Repetition Check
+                    // Kelimeleri ayır
+                    const words = lower.replace(/[^a-zçğıöşü0-9 ]/g, '').split(/\s+/).filter((w: string) => w.length > 0);
+                    
+                    if (words.length > 5) {
+                        const uniqueWords = new Set(words);
+                        // Toleransı artırdım: %30'dan az unique kelime varsa sil
+                        if (uniqueWords.size < words.length * 0.3) {
+                            console.warn("Hallucination detected and removed:", text);
+                            continue;
+                        }
+                    }
+
+                    // 6. Success
+                    formattedLyrics.push({
+                        text: text,
+                        start: chunk.timestamp[0],
+                        end: chunk.timestamp[1] || chunk.timestamp[0] + 3
+                    });
+                }
+
+                // Eğer sıkı filtreleme sonucu hiçbir şey kalmadıysa ama ham veride bir şeyler varsa
+                if (formattedLyrics.length === 0) {
+                    if (rawLyrics.length > 0) {
+                        // Ham veride en azından [Müzik] olmayan bir şeyler var mı bak
+                        const filteredRaw = rawLyrics.filter(l => !l.text.includes('[Müzik]') && !l.text.includes('[Music]'));
+                        if (filteredRaw.length > 0) {
+                            setLyrics(filteredRaw);
+                        } else {
+                             setLyrics([{ text: "(Sözler tamamen enstrümantal veya anlaşılamadı)", start: 0, end: 5 }]);
+                        }
+                    } else {
+                        setLyrics([{ text: "(Söz bulunamadı)", start: 0, end: 5 }]);
+                    }
+                } else {
+                    setLyrics(formattedLyrics);
+                }
+                
+                setIsAnalyzing(false);
+                setShowLyrics(true); 
+                setIsSceneVisible(false);
+
+            } else if (status === 'error') {
+                console.error("AI Error:", error);
+                setIsAnalyzing(false);
+                setIsSceneVisible(true);
+                alert("Analiz hatası: " + error);
+            }
+        };
+        
+        workerRef.current.onerror = (err) => {
+            console.error("Worker error:", err);
+            setIsAnalyzing(false);
+            setIsSceneVisible(true);
+        };
+      } catch (e) {
+        console.error("Worker creation failed:", e);
+      }
+  };
+
+  useEffect(() => {
+      return () => {
+          if (workerRef.current) workerRef.current.terminate();
+      };
+  }, []);
+
+  // --- Audio Analysis Function ---
+  const analyzeAudio = async (url: string, lang: string = 'turkish') => {
+      // 1. Reset UI State
+      setIsAnalyzing(true);
+      setShowLyrics(false);
+      setLyrics([]);
+      
+      // 2. Restart Worker to clear any stuck state
+      initWorker();
+      
+      setAnalysisStatus('Ses Dosyası İşleniyor...');
+
+      try {
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          setAnalysisStatus('Ses Dosyası İndiriliyor...');
+          
+          // Basit bir fetch ile dosyayı al
+          const response = await fetch(url);
+          const arrayBuffer = await response.arrayBuffer();
+          
+          setAnalysisStatus('Ses Formatı Çözümleniyor (Decode)...');
+          
+          // Decode audio (16kHz olması lazım Whisper için)
+          const audioCtx = new AudioContext({ sampleRate: 16000 }); 
+          const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+          
+          // Get channel data (Mono)
+          let audioData = audioBuffer.getChannelData(0);
+
+          setAnalysisStatus(`Yapay Zeka Analiz Ediyor (${lang === 'auto' ? 'Otomatik Dil' : lang})...`);
+
+          // Send to worker
+          if (workerRef.current) {
+              workerRef.current.postMessage({
+                  audio: audioData,
+                  language: lang
+              });
+          } else {
+             console.error("Worker not initialized");
+             setIsAnalyzing(false);
+             setIsSceneVisible(true);
+          }
+          
+          audioCtx.close();
+
+      } catch (e) {
+          console.error("Analysis failed:", e);
+          setIsAnalyzing(false);
+          setIsSceneVisible(true);
+          alert("Dosya işlenemedi. Lütfen geçerli bir ses dosyası olduğundan emin olun.");
+      }
+  };
+
+  const cancelAnalysis = () => {
+      setIsAnalyzing(false);
+      setIsSceneVisible(true);
+      if (workerRef.current) {
+          workerRef.current.terminate();
+          workerRef.current = null;
+      }
+  };
+
+  // Sync Audio Time for Lyrics
+  useEffect(() => {
+      const audio = hiddenAudioRef.current;
+      if (!audio) return;
+
+      const updateTime = () => setAudioCurrentTime(audio.currentTime);
+      const updateDuration = () => setAudioDuration(audio.duration);
+
+      audio.addEventListener('timeupdate', updateTime);
+      audio.addEventListener('loadedmetadata', updateDuration);
+      
+      return () => {
+          audio.removeEventListener('timeupdate', updateTime);
+          audio.removeEventListener('loadedmetadata', updateDuration);
+      };
+  }, [audioUrl]);
+
+  // Audio Playback Sync (App State -> Audio Element)
+  useEffect(() => {
+      if (hiddenAudioRef.current) {
+          hiddenAudioRef.current.volume = volume;
+          if (isPlaying) hiddenAudioRef.current.play().catch(() => {});
+          else hiddenAudioRef.current.pause();
+      }
+  }, [isPlaying, volume]);
 
   // --- Slayt Gösterisi Mantığı ---
   useEffect(() => {
@@ -133,7 +408,7 @@ const App: React.FC = () => {
                   hoverTimerRef.current = setTimeout(() => {
                       // Tetiklemeyi başlat
                       setSsState('e1_app_blur');
-                  }, 2000); // Kursor 2 saniye beklerse başla (BURASI 2sn KALDI)
+                  }, 2000); // Kursor 2 saniye beklerse başla
               }
           } else {
               if (hoverTimerRef.current) {
@@ -151,7 +426,6 @@ const App: React.FC = () => {
   }, [ssState]); 
 
   // --- EKRAN KORUYUCU GEÇİŞ ZİNCİRİ (State-Driven Animation) ---
-  // Tüm geçişler 0.25sn (250ms) + 50ms buffer = 300ms yapıldı
   useEffect(() => {
       let timer: ReturnType<typeof setTimeout>;
 
@@ -210,7 +484,6 @@ const App: React.FC = () => {
       }
   };
 
-  // ... (Helper functions remain same)
   const handleBgImagesAdd = (newImages: string[]) => {
       setBgImages(prev => [...prev, ...newImages]);
       if (!bgImage && newImages.length > 0) { setBgImage(newImages[0]); setCroppedBgImage(null); setBgMode('image'); }
@@ -232,26 +505,42 @@ const App: React.FC = () => {
   };
   const handleBgImageStyleChange = (style: BgImageStyle) => { setBgImageStyle(style); if (style !== 'cover') setCroppedBgImage(null); };
   const handleTextSubmit = (text: string) => {
-    setCurrentText(text); setImageSourceXY(null); setImageSourceYZ(null); setDepthIntensity(0); setIsDrawing(false); setCanvasRotation([0, 0, 0]); setCameraResetTrigger(prev => prev + 1); setIsSceneVisible(true); 
+    setCurrentText(text); setImageSourceXY(null); setImageSourceYZ(null); setDepthIntensity(0); setIsDrawing(false); setCanvasRotation([0, 0, 0]); setCameraResetTrigger(prev => prev + 1); setIsSceneVisible(true); setShowLyrics(false);
   };
   const handleDualImageUpload = (imgXY: string | null, imgYZ: string | null, useOriginalColors: boolean, keepRotation = false) => {
-    setImageSourceXY(imgXY); setImageSourceYZ(imgYZ); setUseImageColors(useOriginalColors); setCurrentText(''); setActivePreset('none'); setIsSceneVisible(true);
+    setImageSourceXY(imgXY); setImageSourceYZ(imgYZ); setUseImageColors(useOriginalColors); setCurrentText(''); setActivePreset('none'); setIsSceneVisible(true); setShowLyrics(false);
     if (isDrawing) { setDepthIntensity(0); setIsDrawing(false); if (!keepRotation) setCanvasRotation([0, 0, 0]); } else { setDepthIntensity(0); setCanvasRotation([0, 0, 0]); }
   };
   const handleImageUpload = (imgSrc: string, useOriginalColors: boolean) => { handleDualImageUpload(imgSrc, null, useOriginalColors, false); };
   const handleDrawingStart = () => {
-    setCurrentText(''); setImageSourceXY(null); setImageSourceYZ(null); setUseImageColors(false); setIsDrawing(true); setParticleColor(particleColor); setCanvasRotation([0, 0, 0]); setClearCanvasTrigger(prev => prev + 1); setIsSceneVisible(true);
+    setCurrentText(''); setImageSourceXY(null); setImageSourceYZ(null); setUseImageColors(false); setIsDrawing(true); setParticleColor(particleColor); setCanvasRotation([0, 0, 0]); setClearCanvasTrigger(prev => prev + 1); setIsSceneVisible(true); setShowLyrics(false);
   };
   const handleDrawingConfirm = () => {
     if (getDrawingDataRef.current) { const dataUrlXY = getDrawingDataRef.current.getXY(); const dataUrlYZ = getDrawingDataRef.current.getYZ(); handleDualImageUpload(dataUrlXY, dataUrlYZ, true, true); }
   };
   const handleColorChange = (color: string) => { setParticleColor(color); setActivePreset('none'); if ((imageSourceXY || imageSourceYZ) && !isDrawing) setUseImageColors(false); };
   const handleResetColors = () => { if (imageSourceXY || imageSourceYZ) setUseImageColors(true); };
-  const handleAudioChange = (mode: AudioMode, url: string | null, title?: string) => { setAudioMode(mode); setAudioUrl(url); setAudioTitle(title || null); setIsPlaying(true); };
+  
+  const handleAudioChange = (mode: AudioMode, url: string | null, title?: string, lang?: string) => { 
+      setAudioMode(mode); 
+      setAudioUrl(url); 
+      setAudioTitle(title || null); 
+      setIsPlaying(true);
+      
+      // Auto analyze if it's a file
+      if (mode === 'file' && url) {
+          analyzeAudio(url, lang || 'turkish');
+      } else {
+          setShowLyrics(false);
+          setIsSceneVisible(true);
+      }
+  };
+  
   const handleClearCanvas = () => { setClearCanvasTrigger(prev => prev + 1); };
-  const handleShapeChange = (shape: ShapeType) => { setCurrentShape(shape); setCurrentText(''); setImageSourceXY(null); setImageSourceYZ(null); setUseImageColors(false); setDepthIntensity(0); setIsSceneVisible(true); };
+  const handleShapeChange = (shape: ShapeType) => { setCurrentShape(shape); setCurrentText(''); setImageSourceXY(null); setImageSourceYZ(null); setUseImageColors(false); setDepthIntensity(0); setIsSceneVisible(true); setShowLyrics(false); };
   const handleResetAll = () => {
     setCurrentText(''); setParticleColor('#ffffff'); setImageSourceXY(null); setImageSourceYZ(null); setUseImageColors(false); setDepthIntensity(0); setActivePreset('none'); setAudioMode('none'); setAudioUrl(null); setAudioTitle(null); setIsPlaying(true); setRepulsionStrength(50); setRepulsionRadius(50); setParticleCount(40000); setParticleSize(20); setModelDensity(50); setIsDrawing(false); setCanvasRotation([0, 0, 0]); setCurrentShape('sphere'); setCameraResetTrigger(prev => prev + 1); setBgMode('dark'); setIsSceneVisible(true); setBgImage(null); setCroppedBgImage(null); setSlideshowSettings(prev => ({...prev, active: false})); setIsAutoRotating(false);
+    setShowLyrics(false); setLyrics([]); setIsAnalyzing(false);
   };
   const rotateCanvasX = () => setCanvasRotation(prev => [prev[0] + Math.PI / 2, prev[1], prev[2]]);
   const rotateCanvasY = () => setCanvasRotation(prev => [prev[0], prev[1] + Math.PI / 2, prev[2]]);
@@ -265,196 +554,74 @@ const App: React.FC = () => {
       switch (t) { case 'slide-left': return 'animate-slide-left'; case 'slide-right': return 'animate-slide-right'; case 'slide-up': return 'animate-slide-up'; case 'slide-down': return 'animate-slide-down'; case 'fade': return 'animate-fade-in-out'; case 'blur': return 'animate-blur-in-out'; case 'transform': return 'animate-transform-zoom'; case 'particles': return 'animate-pixelate'; default: return 'transition-all duration-1000'; }
   };
 
-  // --- STİL VE ANİMASYON HESAPLAMALARI ---
-  
-  // Varsayılan Stiller (0.25sn)
   let appDuration = '0.25s';
   let ssDuration = '0.25s';
-
-  // App Layer Başlangıç (Idle)
   let appFilter = 'blur(0px) brightness(1)';
   let appTransform = 'scale(1)';
   let appInset = '0px';
   let appRadius = '0px';
 
-  // SS Layer Başlangıç (Idle - Gizli)
-  let ssTransform = 'translateY(100%)'; // Ekranın altında
-  let ssInset = '20px'; // Kenarlardan sıkışık
+  let ssTransform = 'translateY(100%)'; 
+  let ssInset = '20px';
   let ssBlur = 'blur(10px)';
-  let ssOpacity = '0'; // Görünmez
+  let ssOpacity = '0'; 
   let ssPointer = 'none';
   let ssRadius = '30px';
   let ssScale = '0.95';
 
-  // --- DURUM MAKİNESİNE GÖRE STİLLER ---
-
   switch (ssState) {
       case 'idle':
-          // Her şey normal
           break;
-
-      // --- GİRİŞ ---
       case 'e1_app_blur':
-          // 1. ADIM: ÖNCE SIKIŞMA (Blur Yok)
-          appDuration = '0.25s';
-          appFilter = 'blur(0px) brightness(1)'; 
-          appInset = '20px'; // Sıkışma
-          appRadius = '30px';
-          appTransform = 'scale(0.95)';
+          appDuration = '0.25s'; appFilter = 'blur(0px) brightness(1)'; appInset = '20px'; appRadius = '30px'; appTransform = 'scale(0.95)';
           break;
-
       case 'e2_app_shrink':
-          // 2. ADIM: SONRA BLUR
-          appDuration = '0.25s';
-          appFilter = 'blur(10px) brightness(0.7)'; // Blur eklendi
-          appInset = '20px';
-          appRadius = '30px';
-          appTransform = 'scale(0.95)';
-          
-          // SS hazırlığı
-          ssDuration = '0.25s';
-          ssOpacity = '1'; 
-          ssTransform = 'translateY(100%)'; 
-          ssBlur = 'blur(10px)';
+          appDuration = '0.25s'; appFilter = 'blur(10px) brightness(0.7)'; appInset = '20px'; appRadius = '30px'; appTransform = 'scale(0.95)';
+          ssDuration = '0.25s'; ssOpacity = '1'; ssTransform = 'translateY(100%)'; ssBlur = 'blur(10px)';
           break;
-
       case 'e3_ss_slide_up':
-          appFilter = 'blur(10px) brightness(0.5)';
-          appInset = '20px';
-          appRadius = '30px';
-          appTransform = 'scale(0.95)';
-          
-          ssDuration = '0.25s';
-          ssOpacity = '1';
-          ssTransform = 'translateY(0)'; // Yukarı çıkar
-          ssInset = '20px';
-          ssBlur = 'blur(10px)';
-          ssRadius = '30px';
-          ssScale = '0.95';
+          appFilter = 'blur(10px) brightness(0.5)'; appInset = '20px'; appRadius = '30px'; appTransform = 'scale(0.95)';
+          ssDuration = '0.25s'; ssOpacity = '1'; ssTransform = 'translateY(0)'; ssInset = '20px'; ssBlur = 'blur(10px)'; ssRadius = '30px'; ssScale = '0.95';
           break;
-
       case 'e4_ss_unblur':
-          appFilter = 'blur(10px) brightness(0.5)';
-          appInset = '20px';
-          appRadius = '30px';
-          appTransform = 'scale(0.95)';
-
-          ssDuration = '0.25s';
-          ssOpacity = '1';
-          ssTransform = 'translateY(0)';
-          ssBlur = 'blur(0px)'; // Netleşir
-          ssInset = '20px';
-          ssRadius = '30px';
-          ssScale = '0.95';
+          appFilter = 'blur(10px) brightness(0.5)'; appInset = '20px'; appRadius = '30px'; appTransform = 'scale(0.95)';
+          ssDuration = '0.25s'; ssOpacity = '1'; ssTransform = 'translateY(0)'; ssBlur = 'blur(0px)'; ssInset = '20px'; ssRadius = '30px'; ssScale = '0.95';
           break;
-
       case 'e5_ss_expand':
-          appFilter = 'blur(10px) brightness(0.5)';
-          appInset = '20px';
-          appRadius = '30px';
-          appTransform = 'scale(0.95)';
-
-          ssDuration = '0.25s';
-          ssOpacity = '1';
-          ssTransform = 'translateY(0)';
-          ssBlur = 'blur(0px)';
-          ssInset = '0px'; // Genişler
-          ssRadius = '0px';
-          ssScale = '1';
+          appFilter = 'blur(10px) brightness(0.5)'; appInset = '20px'; appRadius = '30px'; appTransform = 'scale(0.95)';
+          ssDuration = '0.25s'; ssOpacity = '1'; ssTransform = 'translateY(0)'; ssBlur = 'blur(0px)'; ssInset = '0px'; ssRadius = '0px'; ssScale = '1';
           break;
-
       case 'active':
-          appFilter = 'blur(10px) brightness(0.5)';
-          appInset = '20px';
-          appRadius = '30px';
-          appTransform = 'scale(0.95)';
-          
-          ssOpacity = '1';
-          ssPointer = 'auto';
-          ssTransform = 'translateY(0)';
-          ssBlur = 'blur(0px)';
-          ssInset = '0px';
-          ssRadius = '0px';
-          ssScale = '1';
+          appFilter = 'blur(10px) brightness(0.5)'; appInset = '20px'; appRadius = '30px'; appTransform = 'scale(0.95)';
+          ssOpacity = '1'; ssPointer = 'auto'; ssTransform = 'translateY(0)'; ssBlur = 'blur(0px)'; ssInset = '0px'; ssRadius = '0px'; ssScale = '1';
           break;
-
-      // --- ÇIKIŞ ---
       case 'x1_ss_shrink':
-          appFilter = 'blur(10px) brightness(0.5)';
-          appInset = '20px';
-          appRadius = '30px';
-          appTransform = 'scale(0.95)';
-
-          ssDuration = '0.25s';
-          ssOpacity = '1';
-          ssTransform = 'translateY(0)';
-          ssBlur = 'blur(0px)';
-          ssInset = '20px'; // Sıkışır
-          ssRadius = '30px';
-          ssScale = '0.95';
+          appFilter = 'blur(10px) brightness(0.5)'; appInset = '20px'; appRadius = '30px'; appTransform = 'scale(0.95)';
+          ssDuration = '0.25s'; ssOpacity = '1'; ssTransform = 'translateY(0)'; ssBlur = 'blur(0px)'; ssInset = '20px'; ssRadius = '30px'; ssScale = '0.95';
           break;
-
       case 'x2_ss_blur':
-          appFilter = 'blur(10px) brightness(0.5)';
-          appInset = '20px';
-          appRadius = '30px';
-          appTransform = 'scale(0.95)';
-
-          ssDuration = '0.25s';
-          ssOpacity = '1';
-          ssTransform = 'translateY(0)';
-          ssBlur = 'blur(10px)'; // Bulanıklaşır
-          ssInset = '20px';
-          ssRadius = '30px';
-          ssScale = '0.95';
+          appFilter = 'blur(10px) brightness(0.5)'; appInset = '20px'; appRadius = '30px'; appTransform = 'scale(0.95)';
+          ssDuration = '0.25s'; ssOpacity = '1'; ssTransform = 'translateY(0)'; ssBlur = 'blur(10px)'; ssInset = '20px'; ssRadius = '30px'; ssScale = '0.95';
           break;
-
       case 'x3_ss_slide_down':
-          appFilter = 'blur(10px) brightness(0.5)';
-          appInset = '20px';
-          appRadius = '30px';
-          appTransform = 'scale(0.95)';
-
-          ssDuration = '0.25s';
-          ssOpacity = '1'; 
-          ssTransform = 'translateY(100%)'; // Aşağı gider
-          ssBlur = 'blur(10px)';
-          ssInset = '20px';
-          ssRadius = '30px';
-          ssScale = '0.95';
+          appFilter = 'blur(10px) brightness(0.5)'; appInset = '20px'; appRadius = '30px'; appTransform = 'scale(0.95)';
+          ssDuration = '0.25s'; ssOpacity = '1'; ssTransform = 'translateY(100%)'; ssBlur = 'blur(10px)'; ssInset = '20px'; ssRadius = '30px'; ssScale = '0.95';
           break;
-
       case 'x4_app_expand':
-          ssOpacity = '1'; 
-          ssTransform = 'translateY(100%)';
-          
-          appDuration = '0.25s';
-          appFilter = 'blur(10px) brightness(0.7)'; 
-          appInset = '0px'; // Genişler
-          appRadius = '0px';
-          appTransform = 'scale(1)';
+          ssOpacity = '1'; ssTransform = 'translateY(100%)';
+          appDuration = '0.25s'; appFilter = 'blur(10px) brightness(0.7)'; appInset = '0px'; appRadius = '0px'; appTransform = 'scale(1)';
           break;
-
       case 'x5_app_unblur':
-          ssOpacity = '0';
-          ssDuration = '0.25s';
-
-          appDuration = '0.25s';
-          appFilter = 'blur(0px) brightness(1)'; // Netleşir
-          appInset = '0px';
-          appRadius = '0px';
-          appTransform = 'scale(1)';
+          ssOpacity = '0'; ssDuration = '0.25s';
+          appDuration = '0.25s'; appFilter = 'blur(0px) brightness(1)'; appInset = '0px'; appRadius = '0px'; appTransform = 'scale(1)';
           break;
   }
 
-  // Stilleri Nesneye Dönüştür
   const appLayerStyle: React.CSSProperties = {
       transition: `all ${appDuration} cubic-bezier(0.4, 0, 0.2, 1)`,
       position: 'absolute',
       overflow: 'hidden',
       zIndex: 0,
-      
-      // Dinamik Özellikler
       filter: appFilter,
       transform: appTransform,
       top: appInset !== '0px' ? appInset : 0,
@@ -470,22 +637,15 @@ const App: React.FC = () => {
       transition: `all ${ssDuration} cubic-bezier(0.4, 0, 0.2, 1)`,
       position: 'absolute',
       zIndex: 100,
-      
-      // Dinamik Özellikler
       opacity: ssOpacity,
       pointerEvents: ssPointer as any,
-      
-      // Transform ve Scale kombinasyonu
       transform: ssTransform.includes('translate') ? `${ssTransform} scale(${ssScale})` : ssTransform,
-      
-      // Inset yapısı
       top: ssInset !== '0px' ? ssInset : 0,
       left: ssInset !== '0px' ? ssInset : 0,
       right: ssInset !== '0px' ? ssInset : 0,
       bottom: ssInset !== '0px' ? ssInset : 0,
       width: ssInset !== '0px' ? `calc(100% - ${parseInt(ssInset)*2}px)` : '100%',
       height: ssInset !== '0px' ? `calc(100% - ${parseInt(ssInset)*2}px)` : '100%',
-      
       filter: ssBlur,
       borderRadius: ssRadius,
   };
@@ -506,6 +666,11 @@ const App: React.FC = () => {
           @keyframes transform-zoom { 0% { transform: scale(1.5) rotate(5deg); opacity: 0; } 100% { transform: scale(1) rotate(0deg); opacity: 1; } } .animate-transform-zoom { animation: transform-zoom 1.5s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
           @keyframes pixelate { 0% { filter: contrast(200%) brightness(500%) saturate(0); opacity: 0; transform: scale(1.2); } 50% { filter: contrast(100%) brightness(100%) saturate(1); opacity: 1; transform: scale(1); } 100% { opacity: 1; } } .animate-pixelate { animation: pixelate 1s steps(10) forwards; }
       `}</style>
+
+      {/* Hidden Audio for Playback */}
+      {audioUrl && (
+          <audio ref={hiddenAudioRef} src={audioUrl} loop hidden crossOrigin="anonymous" />
+      )}
 
       {/* --- ANA UYGULAMA KATMANI --- */}
       <div 
@@ -549,7 +714,33 @@ const App: React.FC = () => {
                 onUserTextChange={setWidgetUserText}
             />
 
-            <div className="absolute inset-0 z-10">
+            {/* Analysis Loading Screen */}
+            {isAnalyzing && (
+                <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/60 backdrop-blur-md animate-in fade-in duration-500">
+                    <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4 shadow-[0_0_20px_#3b82f6]"></div>
+                    <div className="text-white font-mono text-xl animate-pulse tracking-widest text-center px-4">{analysisStatus}</div>
+                    <div className="text-white/50 text-xs mt-2 font-mono">Lütfen Bekleyin</div>
+                    <button 
+                        onClick={cancelAnalysis}
+                        className="mt-6 px-4 py-2 border border-red-500/50 text-red-300 rounded hover:bg-red-500/10 transition-colors text-xs font-mono tracking-wider"
+                    >
+                        ANALİZİ İPTAL ET
+                    </button>
+                </div>
+            )}
+
+            {/* Lyrics Display */}
+            {showLyrics && (
+                <LyricsBox 
+                    lyrics={lyrics}
+                    currentTime={audioCurrentTime}
+                    duration={audioDuration}
+                    audioRef={hiddenAudioRef}
+                    visible={showLyrics}
+                />
+            )}
+
+            <div className={`absolute inset-0 z-10 transition-all duration-1000 ${isSceneVisible ? 'opacity-100 scale-100' : 'opacity-0 scale-90 pointer-events-none blur-sm'}`}>
                 <Experience 
                   text={currentText} 
                   imageXY={imageSourceXY} 
@@ -566,6 +757,7 @@ const App: React.FC = () => {
                   activePreset={activePreset} 
                   audioMode={audioMode} 
                   audioUrl={audioUrl} 
+                  audioRef={hiddenAudioRef} // PASSING REF HERE
                   isPlaying={isPlaying} 
                   volume={volume} 
                   isDrawing={isDrawing} 
@@ -576,8 +768,8 @@ const App: React.FC = () => {
                   currentShape={currentShape} 
                   cameraResetTrigger={cameraResetTrigger} 
                   isSceneVisible={isSceneVisible}
-                  isAutoRotating={isAutoRotating} // NEW PROP
-                  onStopAutoRotation={() => setIsAutoRotating(false)} // NEW PROP
+                  isAutoRotating={isAutoRotating} 
+                  onStopAutoRotation={() => setIsAutoRotating(false)} 
                 />
             </div>
             
@@ -633,7 +825,7 @@ const App: React.FC = () => {
               isUIHidden={isUIHidden} 
               onToggleUI={() => setIsUIHidden(!isUIHidden)} 
               isSceneVisible={isSceneVisible} 
-              onToggleScene={() => setIsSceneVisible(!isSceneVisible)} 
+              onToggleScene={() => { setIsSceneVisible(!isSceneVisible); if(lyrics.length > 0 && !isSceneVisible) setShowLyrics(true); else setShowLyrics(false); }} 
               bgImages={bgImages} 
               onBgImagesAdd={handleBgImagesAdd} 
               onBgImageSelect={handleBgImageSelectFromDeck} 
@@ -644,8 +836,8 @@ const App: React.FC = () => {
               onResetDeck={handleDeckReset} 
               slideshowSettings={slideshowSettings} 
               onSlideshowSettingsChange={setSlideshowSettings}
-              isAutoRotating={isAutoRotating} // NEW PROP
-              onToggleAutoRotation={() => setIsAutoRotating(!isAutoRotating)} // NEW PROP
+              isAutoRotating={isAutoRotating} 
+              onToggleAutoRotation={() => setIsAutoRotating(!isAutoRotating)} 
             />
           </div>
       </div>

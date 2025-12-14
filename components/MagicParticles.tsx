@@ -24,8 +24,9 @@ interface MagicParticlesProps {
   activePreset: PresetType;
   audioMode: AudioMode;
   audioUrl: string | null;
+  audioRef?: React.RefObject<HTMLAudioElement>; // NEW: External Audio Ref
   isPlaying: boolean;
-  volume?: number; // Volume prop
+  volume?: number; 
   isDrawing: boolean;
   canvasRotation?: [number, number, number];
   currentShape?: ShapeType;
@@ -34,7 +35,7 @@ interface MagicParticlesProps {
   // Rotation
   isAutoRotating?: boolean;
   onStopAutoRotation?: () => void;
-  cameraResetTrigger?: number; // Trigger to reset mesh rotation
+  cameraResetTrigger?: number; 
 }
 
 export const MagicParticles: React.FC<MagicParticlesProps> = ({ 
@@ -54,6 +55,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   activePreset,
   audioMode,
   audioUrl,
+  audioRef,
   isPlaying,
   volume = 0.5,
   isDrawing,
@@ -78,7 +80,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   const analyserRef = useRef<AnalyserNode | null>(null);
   const dataArrayRef = useRef<Uint8Array | null>(null);
   const audioSourceRef = useRef<MediaElementAudioSourceNode | MediaStreamAudioSourceNode | null>(null);
-  const audioElementRef = useRef<HTMLAudioElement | null>(null);
 
   const randomnessRef = useRef<Float32Array | null>(null);
   
@@ -110,23 +111,20 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       };
   }, []);
 
-  // Reset Mesh Rotation when Camera Reset Triggered (Reset Button Pressed)
   useEffect(() => {
       if (cameraResetTrigger > 0 && pointsRef.current) {
           pointsRef.current.rotation.set(0, 0, 0);
-          rotationVelocity.current.set(0, 0.005, 0); // Reset velocity to initial state
+          rotationVelocity.current.set(0, 0.005, 0); 
       }
   }, [cameraResetTrigger]);
 
   useEffect(() => {
-    if (audioContextRef.current) {
+    // Clean up previous context
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         audioContextRef.current.close();
-        audioContextRef.current = null;
     }
-    if (audioElementRef.current) {
-        audioElementRef.current.pause();
-        audioElementRef.current = null;
-    }
+    audioContextRef.current = null;
+    audioSourceRef.current = null;
 
     if (audioMode === 'none') return;
 
@@ -146,27 +144,33 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
             const bufferLength = analyser.frequencyBinCount;
             dataArrayRef.current = new Uint8Array(bufferLength);
 
-            if (audioMode === 'file' && audioUrl) {
-                const audioEl = new Audio(audioUrl);
-                audioEl.crossOrigin = "anonymous";
-                audioEl.loop = true;
-                audioEl.volume = volume; // Set initial volume
-                if (isPlaying) {
-                   audioEl.play().catch(e => console.warn("Otomatik oynatma engellendi.", e));
+            if (audioMode === 'file' && audioRef?.current) {
+                // Reuse EXISTING Audio Element from App.tsx (No new Audio())
+                const audioEl = audioRef.current;
+                
+                // IMPORTANT: createMediaElementSource can throw if element is already connected to another context.
+                // However, since we close the old context above, it should be fine.
+                // Note: CORS issues can happen if not set on the element (set in App.tsx).
+                try {
+                    const source = ctx.createMediaElementSource(audioEl);
+                    audioSourceRef.current = source;
+                    
+                    // Connect to Analyser AND Destination (Speakers)
+                    // If we don't connect to destination, the audio element is silenced.
+                    source.connect(analyser);
+                    analyser.connect(ctx.destination);
+                } catch (e) {
+                    console.warn("MediaElementSource creation skipped (likely already connected):", e);
+                    // Fallback: If it's already connected, we might lose visualization but audio plays.
+                    // Or we could try to create a new one if we track state better.
                 }
-                
-                audioElementRef.current = audioEl;
-                const source = ctx.createMediaElementSource(audioEl);
-                audioSourceRef.current = source;
-                
-                source.connect(analyser);
-                analyser.connect(ctx.destination);
             } 
             else if (audioMode === 'mic') {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 const source = ctx.createMediaStreamSource(stream);
                 audioSourceRef.current = source;
                 
+                // For mic, usually we don't connect to destination to avoid feedback loop
                 source.connect(analyser);
             }
         } catch (err) {
@@ -174,34 +178,23 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
         }
     };
 
-    initAudio();
+    // Small timeout to ensure audio element prop is stable if mounted fast
+    const timeoutId = setTimeout(initAudio, 100);
 
     return () => {
-        if (audioContextRef.current) audioContextRef.current.close();
-        if (audioElementRef.current) audioElementRef.current.pause();
+        clearTimeout(timeoutId);
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+            audioContextRef.current.close();
+        }
     };
-  }, [audioMode, audioUrl]);
+  }, [audioMode, audioUrl]); // Re-run if audio source changes
 
-  // isPlaying ve volume değiştiğinde sesi yönet
+  // Resume context if suspended (browser autoplay policy)
   useEffect(() => {
-    if (audioMode === 'file' && audioElementRef.current) {
-        audioElementRef.current.volume = volume; // Update volume
-        if (isPlaying) {
-            audioElementRef.current.play().catch(e => console.warn("Oynatma hatası:", e));
-        } else {
-            audioElementRef.current.pause();
-        }
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended' && isPlaying) {
+        audioContextRef.current.resume();
     }
-    else if (audioMode === 'mic' && audioContextRef.current) {
-        // Mic volume usually isn't output volume, but we can't easily control system input level from web.
-        // We just resume/suspend context.
-        if (isPlaying) {
-             audioContextRef.current.resume();
-        } else {
-             audioContextRef.current.suspend();
-        }
-    }
-  }, [isPlaying, audioMode, volume]);
+  }, [isPlaying]);
 
   const getTriangleUV = (index: number, totalPoints: number) => {
       const rows = Math.ceil(Math.sqrt(2 * totalPoints));
@@ -410,7 +403,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
         clickStartY = e.clientY;
         clickStartTime = Date.now();
 
-        // Stop auto rotation on click (any click on canvas)
         if (onStopAutoRotation) {
             onStopAutoRotation();
         }
@@ -466,10 +458,8 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                    const origG = originalColors[i*3+1];
                    const origB = originalColors[i*3+2];
                    
-                   // Parlaklık hesabı
                    const brightness = 0.299 * origR + 0.587 * origG + 0.114 * origB;
                    
-                   // Geliştirilmiş kontrast formülü
                    const contrastFactor = Math.pow(brightness, 1.5); 
                    
                    colors[i*3] = c.r * contrastFactor; 
@@ -479,7 +469,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                   const r = c.r; const g = c.g; const b = c.b;
                   colors[i*3] = r; colors[i*3+1] = g; colors[i*3+2] = b;
                   
-                  // Ses efektinin doğru rengi baz alması için originalColors güncellenmeli
                   originalColors[i*3] = r; 
                   originalColors[i*3+1] = g; 
                   originalColors[i*3+2] = b;
@@ -498,7 +487,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
 
     setIsProcessing(true);
     
-    // SAFE FONT LOADER
     try {
         const loader = new FontLoader();
         loader.load(FONT_URL, (font) => {
@@ -675,9 +663,8 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
             const pX = pixel.x;
             const pY = pixel.y;
             
-            // Eğer tema rengi kullanılıyorsa, parlaklığa göre daha güçlü bir kabartma (relief) uygula
             const reliefBase = pixel.brightness - 0.5;
-            const reliefFactor = !useImageColors ? reliefBase * 1.5 : 0; // Mono modda derinlik artırıldı
+            const reliefFactor = !useImageColors ? reliefBase * 1.5 : 0; 
 
             if (useXY) {
                 tempVec.set(pX, pY, 0);
@@ -704,7 +691,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
             if (useImageColors) { 
                 newColors[i * 3] = pixel.r; newColors[i * 3 + 1] = pixel.g; newColors[i * 3 + 2] = pixel.b; 
             } else { 
-                // Mono modda kontrastlı renklendirme
                 const shade = Math.pow(pixel.brightness, 1.5);
                 newColors[i * 3] = defaultColorRGB.r * shade; 
                 newColors[i * 3 + 1] = defaultColorRGB.g * shade; 
@@ -736,10 +722,8 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
 
     // --- AUTO ROTATION LOGIC ---
     if (isAutoRotating) {
-        // Change rotation direction every 3 seconds
         if (state.clock.elapsedTime > nextRotationChange.current) {
             nextRotationChange.current = state.clock.elapsedTime + 3;
-            // Generate random rotation speed for axes (between -0.01 and 0.01)
             rotationVelocity.current.set(
                 (Math.random() - 0.5) * 0.02,
                 (Math.random() - 0.5) * 0.02,
@@ -747,7 +731,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
             );
         }
         
-        // Apply rotation
         pointsRef.current.rotation.x += rotationVelocity.current.x;
         pointsRef.current.rotation.y += rotationVelocity.current.y;
         pointsRef.current.rotation.z += rotationVelocity.current.z;
@@ -770,7 +753,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
 
     // Visibility Transition Progress (0 = visible, 1 = hidden)
     const targetVis = visible ? 0 : 1; 
-    // Smooth Lerp
     visibilityProgress.current += (targetVis - visibilityProgress.current) * 0.05;
     const isHidden = visibilityProgress.current > 0.99;
     const transVal = visibilityProgress.current;
@@ -903,16 +885,13 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       current[ix] = px; current[iy] = py; current[iz] = pz;
 
       // APPLY VFX TRANSITION (Explosion/Implosion)
-      // This only affects visual position, not physics state, allowing it to "reform" easily
       if (transVal > 0.001) {
-          // Calculate a radial explosion vector
           const explosionRadius = 50.0 * transVal * transVal; // Quadratic ease-out distance
           const len = Math.sqrt(px*px + py*py + pz*pz) || 1;
           const dirX = px / len; 
           const dirY = py / len; 
           const dirZ = pz / len;
           
-          // Add some randomness to explosion direction based on index
           const rnd = randomnessRef.current ? randomnessRef.current[i] : 0;
           
           px += dirX * explosionRadius + (rnd * explosionRadius * 0.5);
@@ -953,11 +932,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                b = simulationData.originalColors[iz];
            }
            
-           // Fade out opacity during transition
-           // Note: We are only changing color here, PointsMaterial opacity handles global fade if uniform,
-           // but vertex colors don't support per-vertex opacity in basic PointsMaterial without custom shader.
-           // However, blending darker color acts as fade in additive/normal blending on black background.
-           // For better effect, we scale the size down or just let it fly out of camera view.
            if (transVal > 0) {
                const fade = 1.0 - transVal;
                r *= fade; g *= fade; b *= fade;

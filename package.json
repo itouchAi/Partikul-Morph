@@ -13,7 +13,8 @@
     "react-dom": "18.2.0",
     "three": "0.166.1",
     "@react-three/fiber": "8.16.8",
-    "@react-three/drei": "9.108.0"
+    "@react-three/drei": "9.108.0",
+    "@xenova/transformers": "2.16.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

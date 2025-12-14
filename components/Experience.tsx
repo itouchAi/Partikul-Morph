@@ -22,8 +22,9 @@ interface ExperienceProps {
   activePreset: PresetType;
   audioMode: AudioMode;
   audioUrl: string | null;
+  audioRef?: React.RefObject<HTMLAudioElement>; // Added prop
   isPlaying: boolean;
-  volume?: number; // Added volume prop
+  volume?: number;
 
   isDrawing: boolean;
   brushSize: number;
@@ -237,6 +238,7 @@ export const Experience: React.FC<ExperienceProps> = ({
   activePreset,
   audioMode,
   audioUrl,
+  audioRef,
   isPlaying,
   volume = 0.5,
   isDrawing,
@@ -319,6 +321,7 @@ export const Experience: React.FC<ExperienceProps> = ({
                 activePreset={activePreset}
                 audioMode={audioMode}
                 audioUrl={audioUrl}
+                audioRef={audioRef}
                 isPlaying={isPlaying}
                 volume={volume}
                 isDrawing={false}
