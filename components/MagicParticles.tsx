@@ -7,6 +7,24 @@ import { PresetType, AudioMode, ShapeType } from '../types';
 const SPHERE_RADIUS = 4;
 const FONT_URL = 'https://cdn.jsdelivr.net/npm/three/examples/fonts/droid/droid_sans_bold.typeface.json';
 
+// Metin Kaydırma Yardımcı Fonksiyonu
+const wrapText = (text: string, maxCharsPerLine: number) => {
+    const words = text.split(' ');
+    const lines = [];
+    let currentLine = words[0];
+
+    for (let i = 1; i < words.length; i++) {
+        if (currentLine.length + 1 + words[i].length <= maxCharsPerLine) {
+            currentLine += ' ' + words[i];
+        } else {
+            lines.push(currentLine);
+            currentLine = words[i];
+        }
+    }
+    lines.push(currentLine);
+    return lines;
+};
+
 interface MagicParticlesProps {
   text: string;
   imageXY: string | null;
@@ -414,35 +432,73 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
         const loader = new FontLoader();
         loader.load(FONT_URL, (font) => {
             const fontSize = 2;
-            const shapes = font.generateShapes(text, fontSize);
-            if (shapes.length === 0) {
-                simulationData.targets.set(shapePositions);
-                setIsProcessing(false);
-                return;
+            const lineHeight = 2.5; 
+            const maxChars = 15; // Maksimum karakter sınırı (Satır başına)
+            
+            // Metni satırlara böl
+            const lines = wrapText(text, maxChars);
+            
+            // Her satır için geometri oluştur ve birleştir
+            const geometries: THREE.ExtrudeGeometry[] = [];
+            
+            lines.forEach((line, i) => {
+                const shapes = font.generateShapes(line, fontSize);
+                if (shapes.length > 0) {
+                    const geom = new THREE.ExtrudeGeometry(shapes, { 
+                        depth: 0, 
+                        bevelEnabled: false 
+                    });
+                    
+                    geom.computeBoundingBox();
+                    // Satırı ortala
+                    const xMid = -0.5 * (geom.boundingBox!.max.x - geom.boundingBox!.min.x);
+                    // Dikey konumlandırma (Yukarıdan aşağı)
+                    // Tüm bloğu dikeyde ortalamak için offset hesapla
+                    const totalBlockHeight = lines.length * lineHeight;
+                    const yStart = (totalBlockHeight / 2) - lineHeight / 2;
+                    const yPos = yStart - (i * lineHeight);
+                    
+                    geom.translate(xMid, yPos, 0);
+                    geometries.push(geom);
+                }
+            });
+
+            if (geometries.length === 0) {
+                 simulationData.targets.set(shapePositions);
+                 setIsProcessing(false);
+                 return;
             }
-            // 2D LOOK: Depth set to 0, Bevel disabled
-            const geometry = new THREE.ExtrudeGeometry(shapes, { 
-                depth: 0, // No depth for 2D look
-                bevelEnabled: false 
+
+            // Geometrileri Birleştirme (Manual Merge to avoid external dependencies)
+            // Sadece position attribute'una ihtiyacımız var
+            let totalVertices = 0;
+            geometries.forEach(g => totalVertices += g.attributes.position.count);
+            
+            const mergedPositions = new Float32Array(totalVertices * 3);
+            let offset = 0;
+            
+            geometries.forEach(g => {
+                const arr = g.attributes.position.array;
+                mergedPositions.set(arr, offset);
+                offset += arr.length;
+                g.dispose(); // Temizlik
             });
             
-            geometry.computeBoundingBox();
-            const bbox = geometry.boundingBox!;
-            const xMid = -0.5 * (bbox.max.x - bbox.min.x);
-            const yMid = -0.5 * (bbox.max.y - bbox.min.y);
-            const zMid = -0.5 * (bbox.max.z - bbox.min.z);
-            geometry.translate(xMid, yMid, zMid);
+            // Alan hesaplaması için geçici buffer geometry
+            const mergedGeometry = new THREE.BufferGeometry();
+            mergedGeometry.setAttribute('position', new THREE.BufferAttribute(mergedPositions, 3));
             
+            mergedGeometry.computeBoundingBox();
+            const bbox = mergedGeometry.boundingBox!;
             const maxDim = Math.max(bbox.max.x - bbox.min.x, bbox.max.y - bbox.min.y);
+            // Normalizasyon: Metin ne kadar uzun olursa olsun kutuya sığdır, ama satır bölme sayesinde
+            // kutu artık kareye yakın olduğu için harfler büyür.
             const normalizeScale = 1 / (maxDim || 1);
-            geometry.scale(normalizeScale, normalizeScale, normalizeScale);
-
-            if (geometry.index) geometry.toNonIndexed();
-            const posAttribute = geometry.attributes.position;
+            
+            // Alan Hesaplama ve Nokta Dağıtımı
+            const posAttribute = mergedGeometry.attributes.position;
             const triangleCount = posAttribute.count / 3;
             
-            if (triangleCount === 0) { geometry.dispose(); setIsProcessing(false); return; }
-
             const triangleAreas = [];
             let totalArea = 0;
             const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
@@ -481,15 +537,21 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                 c.fromBufferAttribute(posAttribute, i3 + 2);
                 let r1 = Math.random(), r2 = Math.random();
                 if (r1 + r2 > 1) { r1 = 1 - r1; r2 = 1 - r2; }
+                
+                // Noktayı üçgen üzerinde oluştur
                 tempTarget.copy(a).addScaledVector(b.clone().sub(a), r1).addScaledVector(c.clone().sub(a), r2);
                 
+                // Merkeze hizalama ve Scale
+                // Normalizasyonu burada uyguluyoruz
+                tempTarget.multiplyScalar(normalizeScale);
+
                 normTargets[i * 3] = tempTarget.x;
                 normTargets[i * 3 + 1] = tempTarget.y;
                 normTargets[i * 3 + 2] = tempTarget.z;
             }
 
             normalizedShapeRef.current.targets = normTargets;
-            simulationData.zOffsets.fill(0); // Flat z-offset for text
+            simulationData.zOffsets.fill(0); 
             
             const currentTargets = simulationData.targets;
             const scale = (SPHERE_RADIUS * 2.2) * densityScale;
@@ -497,7 +559,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                 currentTargets[i] = normTargets[i] * scale;
             }
 
-            geometry.dispose();
+            mergedGeometry.dispose();
             setIsProcessing(false);
         });
     } catch(e) {

@@ -506,6 +506,7 @@ const App: React.FC = () => {
       setIsAnalyzing(false); 
       setAnalysisStatus('');
       setLyrics([]);
+      setActiveLyricText(''); // CRITICAL: Clear the displayed text immediately
       
       // 4. Force Element Re-render
       setAudioVersion(v => v + 1);
