@@ -133,6 +133,11 @@ const App: React.FC = () => {
   const workerRef = useRef<Worker | null>(null);
   const hiddenAudioRef = useRef<HTMLAudioElement>(null); 
   const [isModelReady, setIsModelReady] = useState(false);
+  
+  // NEW: Robust ID Tracking & Versioning
+  const analysisIdRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const [audioVersion, setAudioVersion] = useState(0); // Bu değiştiğinde Player yeniden doğar
 
   // --- Audio Engine State (Centralized) ---
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -147,7 +152,8 @@ const App: React.FC = () => {
 
   // --- Initialize Worker Function ---
   const initWorker = () => {
-      if (workerRef.current) workerRef.current.terminate();
+      if (workerRef.current) return; 
+
       try {
         const blob = new Blob([WORKER_CODE], { type: 'application/javascript' });
         const url = URL.createObjectURL(blob);
@@ -196,30 +202,53 @@ const App: React.FC = () => {
 
   useEffect(() => { return () => { if (workerRef.current) workerRef.current.terminate(); }; }, []);
 
-  // --- Audio Analysis Function (Worker) ---
-  const analyzeAudio = async (url: string, lang: string = 'turkish') => {
+  // --- Audio Analysis Function (Isolated) ---
+  const analyzeAudio = async (url: string, lang: string = 'turkish', analysisId: number) => {
+      if (analysisId !== analysisIdRef.current) return;
+
       setIsAnalyzing(true); 
-      setLyrics([]); 
       initWorker();
       setAnalysisStatus('Ses İndiriliyor...');
       
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+
       try {
-          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-          const response = await fetch(url);
+          // Fetch separately from playback
+          const response = await fetch(url, { signal: abortController.signal });
           const arrayBuffer = await response.arrayBuffer();
+          
+          if (analysisId !== analysisIdRef.current) return;
+
           setAnalysisStatus('İşleniyor...');
-          const audioCtx = new AudioContext({ sampleRate: 16000 }); 
-          const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-          let audioData = audioBuffer.getChannelData(0);
-          setAnalysisStatus('Yapay Zeka Dinliyor...');
-          if (workerRef.current) workerRef.current.postMessage({ audio: audioData, language: lang });
-          audioCtx.close();
-      } catch (e) {
-          console.error("Analysis failed:", e); setIsAnalyzing(false); 
+          // Use a completely separate context for decoding to avoid locking the main one
+          const offlineCtx = new AudioContext({ sampleRate: 16000 }); 
+          
+          try {
+              const audioBuffer = await offlineCtx.decodeAudioData(arrayBuffer);
+              
+              if (analysisId !== analysisIdRef.current) return;
+
+              let audioData = audioBuffer.getChannelData(0);
+              setAnalysisStatus('Yapay Zeka Dinliyor...');
+              
+              if (workerRef.current) {
+                  workerRef.current.postMessage({ audio: audioData, language: lang });
+              }
+          } finally {
+              offlineCtx.close();
+          }
+      } catch (e: any) {
+          if (e.name !== 'AbortError' && analysisId === analysisIdRef.current) {
+              console.error("Analysis failed:", e); 
+              setIsAnalyzing(false); 
+              setAnalysisStatus('Hata');
+          }
       }
   };
 
   // --- Centralized Audio Context Management ---
+  // Re-run whenever audioVersion changes (new song)
   useEffect(() => {
       if (audioMode === 'none') {
           if (audioContextRef.current) {
@@ -248,39 +277,41 @@ const App: React.FC = () => {
               await ctx.resume();
           }
 
+          // Clean up old connections
           if (sourceNodeRef.current) {
               sourceNodeRef.current.disconnect();
               sourceNodeRef.current = null;
           }
 
-          if (audioMode === 'file' && hiddenAudioRef.current) {
-              try {
-                  const source = ctx.createMediaElementSource(hiddenAudioRef.current);
-                  source.connect(analyser);
-                  analyser.connect(ctx.destination); 
-                  sourceNodeRef.current = source;
-              } catch (e) {
-                  // Ignore "already connected"
+          // Wait for DOM update
+          setTimeout(() => {
+              if (audioMode === 'file' && hiddenAudioRef.current) {
+                  try {
+                      const source = ctx.createMediaElementSource(hiddenAudioRef.current);
+                      source.connect(analyser);
+                      analyser.connect(ctx.destination); 
+                      sourceNodeRef.current = source;
+                  } catch (e) {
+                      // Already connected error is fine here since we destroy the element
+                  }
+              } else if (audioMode === 'mic') {
+                  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+                      const source = ctx.createMediaStreamSource(stream);
+                      source.connect(analyser);
+                      sourceNodeRef.current = source;
+                  }).catch(e => console.error("Mic error", e));
               }
-          } else if (audioMode === 'mic') {
-              try {
-                  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                  const source = ctx.createMediaStreamSource(stream);
-                  source.connect(analyser);
-                  sourceNodeRef.current = source;
-              } catch (e) {
-                  console.error("Mic access failed", e);
-              }
-          }
+          }, 100);
       };
 
       initAudioContext();
-  }, [audioMode, audioUrl]);
+  }, [audioMode, audioVersion]);
 
   // Sync Audio Time for Lyrics
   useEffect(() => {
       const audio = hiddenAudioRef.current;
       if (!audio) return;
+
       const updateTime = () => {
           const t = audio.currentTime;
           setAudioCurrentTime(t);
@@ -293,24 +324,42 @@ const App: React.FC = () => {
           }
       };
       const updateDuration = () => setAudioDuration(audio.duration);
+      
+      // Events need to be re-attached because the element is new
       audio.addEventListener('timeupdate', updateTime);
       audio.addEventListener('loadedmetadata', updateDuration);
-      return () => { audio.removeEventListener('timeupdate', updateTime); audio.removeEventListener('loadedmetadata', updateDuration); };
-  }, [audioUrl, lyrics]);
+      
+      return () => { 
+          audio.removeEventListener('timeupdate', updateTime); 
+          audio.removeEventListener('loadedmetadata', updateDuration); 
+      };
+  }, [audioVersion, lyrics]);
 
-  // Audio Playback Sync
+  // --- PLAYBACK CONTROL ---
   useEffect(() => {
-      if (hiddenAudioRef.current) {
-          hiddenAudioRef.current.volume = volume;
-          if (isPlaying) {
-              hiddenAudioRef.current.play().catch(e => console.warn("Play failed", e));
-              if (audioContextRef.current?.state === 'suspended') audioContextRef.current.resume();
-          }
-          else hiddenAudioRef.current.pause();
-      }
-  }, [isPlaying, volume, audioUrl]);
+      const audio = hiddenAudioRef.current;
+      if (!audio) return;
 
-  // --- Slayt Gösterisi ve Transition Mantığı (Strobe Fix) ---
+      const playAudio = async () => {
+          audio.volume = volume;
+          if (isPlaying && audioUrl) {
+              try {
+                  await audio.play();
+              } catch (e) {
+                  console.warn("Autoplay prevented", e);
+              }
+          } else {
+              audio.pause();
+          }
+      };
+      
+      // Small delay to ensure DOM is ready after remount
+      const t = setTimeout(playAudio, 100);
+      return () => clearTimeout(t);
+  }, [isPlaying, volume, audioVersion, audioUrl]);
+
+
+  // --- Slayt Gösterisi ve Transition Mantığı ---
   useEffect(() => {
       let intervalId: any;
 
@@ -346,7 +395,6 @@ const App: React.FC = () => {
               });
               setCroppedBgImage(null);
 
-              // Calculate transition ONLY when slide changes
               let nextT = slideshowSettings.transition;
               if (nextT === 'random') {
                   const effects = ['slide-left', 'slide-right', 'slide-up', 'slide-down', 'fade', 'blur', 'transform'];
@@ -441,9 +489,41 @@ const App: React.FC = () => {
   const handleResetColors = () => { if (imageSourceXY || imageSourceYZ) setUseImageColors(true); };
   
   const handleAudioChange = (mode: AudioMode, url: string | null, title?: string, lang?: string) => { 
-      setAudioMode(mode); setAudioUrl(url); setAudioTitle(title || null); setIsPlaying(true);
+      // 1. New Version ID -> Kills old player
+      const newAnalysisId = analysisIdRef.current + 1;
+      analysisIdRef.current = newAnalysisId;
+
+      // 2. Kill old analysis
+      if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+      }
+      if (workerRef.current) {
+          workerRef.current.terminate();
+          workerRef.current = null;
+      }
+
+      // 3. Reset UI
+      setIsAnalyzing(false); 
+      setAnalysisStatus('');
+      setLyrics([]);
+      
+      // 4. Force Element Re-render
+      setAudioVersion(v => v + 1);
+
+      // 5. Update State
+      setAudioMode(mode); 
+      setAudioUrl(url); 
+      setAudioTitle(title || null); 
+      setIsPlaying(true);
+
+      // 6. Schedule Analysis (Delayed)
       if (mode === 'file' && url) {
-          analyzeAudio(url, lang || 'turkish');
+          setTimeout(() => {
+              // Only run if user hasn't switched song again
+              if (analysisIdRef.current === newAnalysisId) {
+                  analyzeAudio(url, lang || 'turkish', newAnalysisId);
+              }
+          }, 1500); 
       } else { 
           setShowLyrics(false); 
           setIsSceneVisible(true); 
@@ -505,7 +585,8 @@ const App: React.FC = () => {
       `}</style>
 
       {audioUrl && (
-          <audio ref={hiddenAudioRef} src={audioUrl} loop hidden crossOrigin="anonymous" />
+          // KEY PROP IS CRITICAL HERE FOR RESETTING PLAYER
+          <audio key={audioVersion} ref={hiddenAudioRef} src={audioUrl} loop hidden crossOrigin="anonymous" />
       )}
 
       <div id="app-layer" style={appLayerStyle} className="bg-black shadow-2xl">
