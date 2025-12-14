@@ -21,8 +21,7 @@ interface ExperienceProps {
   
   activePreset: PresetType;
   audioMode: AudioMode;
-  audioUrl: string | null;
-  audioRef?: React.RefObject<HTMLAudioElement>; // Added prop
+  analyser?: AnalyserNode | null; // Changed from raw audio props to AnalyserNode
   isPlaying: boolean;
   volume?: number;
 
@@ -237,8 +236,7 @@ export const Experience: React.FC<ExperienceProps> = ({
   modelDensity,
   activePreset,
   audioMode,
-  audioUrl,
-  audioRef,
+  analyser,
   isPlaying,
   volume = 0.5,
   isDrawing,
@@ -320,8 +318,7 @@ export const Experience: React.FC<ExperienceProps> = ({
                 previousPositions={previousPositions}
                 activePreset={activePreset}
                 audioMode={audioMode}
-                audioUrl={audioUrl}
-                audioRef={audioRef}
+                analyser={analyser}
                 isPlaying={isPlaying}
                 volume={volume}
                 isDrawing={false}
@@ -330,7 +327,7 @@ export const Experience: React.FC<ExperienceProps> = ({
                 visible={isSceneVisible}
                 isAutoRotating={isAutoRotating}
                 onStopAutoRotation={onStopAutoRotation}
-                cameraResetTrigger={cameraResetTrigger} // Pass trigger to reset internal rotation
+                cameraResetTrigger={cameraResetTrigger}
               />
           )}
       </group>

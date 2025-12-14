@@ -23,8 +23,7 @@ interface MagicParticlesProps {
   previousPositions: React.MutableRefObject<Float32Array | null>;
   activePreset: PresetType;
   audioMode: AudioMode;
-  audioUrl: string | null;
-  audioRef?: React.RefObject<HTMLAudioElement>; // NEW: External Audio Ref
+  analyser?: AnalyserNode | null; // Recieves external analyser
   isPlaying: boolean;
   volume?: number; 
   isDrawing: boolean;
@@ -54,8 +53,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   previousPositions,
   activePreset,
   audioMode,
-  audioUrl,
-  audioRef,
+  analyser,
   isPlaying,
   volume = 0.5,
   isDrawing,
@@ -76,10 +74,8 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   // Visibility Transition Progress (0 = visible, 1 = hidden)
   const visibilityProgress = useRef(0);
   
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
+  // Audio Data Buffer (Managed here, but filled via external analyser)
   const dataArrayRef = useRef<Uint8Array | null>(null);
-  const audioSourceRef = useRef<MediaElementAudioSourceNode | MediaStreamAudioSourceNode | null>(null);
 
   const randomnessRef = useRef<Float32Array | null>(null);
   
@@ -118,83 +114,12 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
       }
   }, [cameraResetTrigger]);
 
+  // Init Data Array when Analyser changes
   useEffect(() => {
-    // Clean up previous context
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close();
-    }
-    audioContextRef.current = null;
-    audioSourceRef.current = null;
-
-    if (audioMode === 'none') return;
-
-    const initAudio = async () => {
-        try {
-            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-            const ctx = new AudioContextClass();
-            audioContextRef.current = ctx;
-
-            const analyser = ctx.createAnalyser();
-            analyser.fftSize = 256; 
-            analyser.smoothingTimeConstant = 0.5; 
-            analyser.minDecibels = -90;
-            analyser.maxDecibels = -10;
-            analyserRef.current = analyser;
-
-            const bufferLength = analyser.frequencyBinCount;
-            dataArrayRef.current = new Uint8Array(bufferLength);
-
-            if (audioMode === 'file' && audioRef?.current) {
-                // Reuse EXISTING Audio Element from App.tsx (No new Audio())
-                const audioEl = audioRef.current;
-                
-                // IMPORTANT: createMediaElementSource can throw if element is already connected to another context.
-                // However, since we close the old context above, it should be fine.
-                // Note: CORS issues can happen if not set on the element (set in App.tsx).
-                try {
-                    const source = ctx.createMediaElementSource(audioEl);
-                    audioSourceRef.current = source;
-                    
-                    // Connect to Analyser AND Destination (Speakers)
-                    // If we don't connect to destination, the audio element is silenced.
-                    source.connect(analyser);
-                    analyser.connect(ctx.destination);
-                } catch (e) {
-                    console.warn("MediaElementSource creation skipped (likely already connected):", e);
-                    // Fallback: If it's already connected, we might lose visualization but audio plays.
-                    // Or we could try to create a new one if we track state better.
-                }
-            } 
-            else if (audioMode === 'mic') {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const source = ctx.createMediaStreamSource(stream);
-                audioSourceRef.current = source;
-                
-                // For mic, usually we don't connect to destination to avoid feedback loop
-                source.connect(analyser);
-            }
-        } catch (err) {
-            console.error("Ses başlatma hatası:", err);
-        }
-    };
-
-    // Small timeout to ensure audio element prop is stable if mounted fast
-    const timeoutId = setTimeout(initAudio, 100);
-
-    return () => {
-        clearTimeout(timeoutId);
-        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-            audioContextRef.current.close();
-        }
-    };
-  }, [audioMode, audioUrl]); // Re-run if audio source changes
-
-  // Resume context if suspended (browser autoplay policy)
-  useEffect(() => {
-    if (audioContextRef.current && audioContextRef.current.state === 'suspended' && isPlaying) {
-        audioContextRef.current.resume();
-    }
-  }, [isPlaying]);
+      if (analyser) {
+          dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount);
+      }
+  }, [analyser]);
 
   const getTriangleUV = (index: number, totalPoints: number) => {
       const rows = Math.ceil(Math.sqrt(2 * totalPoints));
@@ -405,10 +330,6 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
 
         if (onStopAutoRotation) {
             onStopAutoRotation();
-        }
-
-        if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-            audioContextRef.current.resume();
         }
       }
     };
@@ -740,8 +661,8 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     let avgVolume = 0;
 
     // Eğer müzik duraklatıldıysa veya sessizse, görselleştirme yapma
-    if (isAudioActive && isPlaying && analyserRef.current && dataArrayRef.current) {
-        analyserRef.current.getByteFrequencyData(dataArrayRef.current);
+    if (isAudioActive && isPlaying && analyser && dataArrayRef.current) {
+        analyser.getByteFrequencyData(dataArrayRef.current);
         let sum = 0;
         const len = dataArrayRef.current.length;
         for(let k=0; k < len; k++) { sum += dataArrayRef.current[k]; }
