@@ -37,6 +37,7 @@ interface ExperienceProps {
   // NEW: Rotation Props
   isAutoRotating?: boolean;
   onStopAutoRotation?: () => void;
+  enableAudioReactivity?: boolean; // New prop for selective audio echo
 }
 
 const DrawingPlane3D: React.FC<{
@@ -248,7 +249,8 @@ export const Experience: React.FC<ExperienceProps> = ({
   cameraResetTrigger = 0,
   isSceneVisible = true,
   isAutoRotating = true,
-  onStopAutoRotation
+  onStopAutoRotation,
+  enableAudioReactivity = true
 }) => {
   const controlsRef = useRef<any>(null);
   const objectGroupRef = useRef<THREE.Group>(null);
@@ -328,6 +330,7 @@ export const Experience: React.FC<ExperienceProps> = ({
                 isAutoRotating={isAutoRotating}
                 onStopAutoRotation={onStopAutoRotation}
                 cameraResetTrigger={cameraResetTrigger}
+                enableAudioReactivity={enableAudioReactivity}
               />
           )}
       </group>

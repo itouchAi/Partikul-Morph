@@ -104,6 +104,8 @@ interface UIOverlayProps {
   useLyricParticles?: boolean;
   onToggleLyricParticles?: () => void;
   hasLyrics?: boolean;
+  useLyricEcho?: boolean; // New prop
+  onToggleLyricEcho?: () => void; // New prop
 }
 
 export const UIOverlay: React.FC<UIOverlayProps> = ({ 
@@ -174,7 +176,9 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
   onToggleAutoRotation,
   useLyricParticles = false,
   onToggleLyricParticles,
-  hasLyrics = false
+  hasLyrics = false,
+  useLyricEcho = false,
+  onToggleLyricEcho
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
@@ -796,11 +800,22 @@ export const UIOverlay: React.FC<UIOverlayProps> = ({
                         </div>
                         {/* New Lyric Toggle */}
                         {hasLyrics && (
-                            <div className="flex items-center justify-between border-t border-white/10 pt-3 mt-1 vfx-item delay-5">
-                                <span className="text-[10px] text-gray-400 font-medium">Partikül Sözler (Beta)</span>
-                                <button onClick={onToggleLyricParticles} className={`w-8 h-4 rounded-full relative transition-colors ${useLyricParticles ? 'bg-purple-600' : 'bg-white/10'}`}>
-                                    <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${useLyricParticles ? 'translate-x-4' : 'translate-x-0'}`} />
-                                </button>
+                            <div className="border-t border-white/10 pt-3 mt-1 vfx-item delay-5 flex flex-col gap-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] text-gray-400 font-medium">Partikül Sözler (Beta)</span>
+                                    <button onClick={onToggleLyricParticles} className={`w-8 h-4 rounded-full relative transition-colors ${useLyricParticles ? 'bg-purple-600' : 'bg-white/10'}`}>
+                                        <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${useLyricParticles ? 'translate-x-4' : 'translate-x-0'}`} />
+                                    </button>
+                                </div>
+                                
+                                {useLyricParticles && (
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[10px] text-gray-400 font-medium pl-2 border-l-2 border-purple-500/50">Eko (Ritim)</span>
+                                        <button onClick={onToggleLyricEcho} className={`w-8 h-4 rounded-full relative transition-colors ${useLyricEcho ? 'bg-orange-600' : 'bg-white/10'}`}>
+                                            <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform ${useLyricEcho ? 'translate-x-4' : 'translate-x-0'}`} />
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>

@@ -35,6 +35,7 @@ interface MagicParticlesProps {
   isAutoRotating?: boolean;
   onStopAutoRotation?: () => void;
   cameraResetTrigger?: number; 
+  enableAudioReactivity?: boolean;
 }
 
 export const MagicParticles: React.FC<MagicParticlesProps> = ({ 
@@ -62,7 +63,8 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
   visible = true,
   isAutoRotating = true,
   onStopAutoRotation,
-  cameraResetTrigger = 0
+  cameraResetTrigger = 0,
+  enableAudioReactivity = true
 }) => {
   const pointsRef = useRef<THREE.Points>(null);
   const { camera, gl } = useThree();
@@ -418,7 +420,12 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
                 setIsProcessing(false);
                 return;
             }
-            const geometry = new THREE.ExtrudeGeometry(shapes, { depth: 1.5, bevelEnabled: true });
+            // 2D LOOK: Depth set to 0, Bevel disabled
+            const geometry = new THREE.ExtrudeGeometry(shapes, { 
+                depth: 0, // No depth for 2D look
+                bevelEnabled: false 
+            });
+            
             geometry.computeBoundingBox();
             const bbox = geometry.boundingBox!;
             const xMid = -0.5 * (bbox.max.x - bbox.min.x);
@@ -482,7 +489,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
             }
 
             normalizedShapeRef.current.targets = normTargets;
-            simulationData.zOffsets.fill(0); 
+            simulationData.zOffsets.fill(0); // Flat z-offset for text
             
             const currentTargets = simulationData.targets;
             const scale = (SPHERE_RADIUS * 2.2) * densityScale;
@@ -714,6 +721,11 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     const projected = new THREE.Vector3();
     const distVec = new THREE.Vector3();
 
+    // Determine audio reactivity for this frame
+    // React if active AND (we are NOT in text mode OR echo is explicitly enabled)
+    const isTextMode = !!text;
+    const applyAudioReactivity = isAudioActive && (!isTextMode || enableAudioReactivity);
+
     for (let i = 0; i < particleCount; i++) {
       const ix = i * 3;
       const iy = i * 3 + 1;
@@ -738,13 +750,13 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
           const thickness = depthIntensity * 4.0; 
           tx += nx * rnd * thickness; ty += ny * rnd * thickness; tz += nz * rnd * thickness;
           
-          if (isAudioActive && dataArrayRef.current) {
+          if (applyAudioReactivity && dataArrayRef.current) {
               const binIndex = i % (bufferLength / 2);
               const rawVal = dataArrayRef.current[binIndex] / 255.0;
               const audioSpike = rawVal * 4.0;
               tx += nx * audioSpike; ty += ny * audioSpike; tz += nz * audioSpike;
           }
-      } else if (isAudioActive && dataArrayRef.current) {
+      } else if (applyAudioReactivity && dataArrayRef.current) {
          const binIndex = i % (bufferLength / 2);
          const rawVal = dataArrayRef.current[binIndex] / 255.0;
          const spike = rawVal * 3.0;
@@ -822,9 +834,9 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
 
       positionsAttribute.setXYZ(i, px, py, pz);
       
-       if (isAudioActive || activePreset !== 'none' || transVal > 0.001) {
+       if (activePreset !== 'none' || applyAudioReactivity || transVal > 0.001) {
            let r=1, g=1, b=1;
-           if (activePreset === 'none' && isAudioActive) {
+           if (activePreset === 'none' && applyAudioReactivity) {
                let freqValue = 0;
                if (dataArrayRef.current) freqValue = dataArrayRef.current[i % bufferLength] / 255.0;
                let baseR = simulationData.originalColors[ix] || 1;
@@ -863,7 +875,7 @@ export const MagicParticles: React.FC<MagicParticlesProps> = ({
     }
 
     positionsAttribute.needsUpdate = true;
-    if (activePreset !== 'none' || isAudioActive || transVal > 0.001) {
+    if (activePreset !== 'none' || applyAudioReactivity || transVal > 0.001) {
         colorsAttribute.needsUpdate = true;
     }
 

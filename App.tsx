@@ -4,7 +4,7 @@ import { UIOverlay } from './components/UIOverlay';
 import { ClockWidget } from './components/ClockWidget';
 import { Screensaver } from './components/Screensaver';
 import { LyricsBox } from './components/LyricsBox';
-import { PresetType, AudioMode, BackgroundMode, BgImageStyle, ShapeType, SlideshowSettings, LyricLine } from './types';
+import { PresetType, AudioMode, BackgroundMode, BgImageStyle, ShapeType, SlideshowSettings, LyricLine, SlideshowTransition } from './types';
 
 // Ekran Koruyucu Durumları (Kesin Sıralı - 5 Adım)
 type ScreensaverState = 
@@ -86,6 +86,8 @@ const App: React.FC = () => {
       order: 'sequential',
       transition: 'fade'
   });
+  // Fix: Rastgele geçiş için kararlı state (Strobe effect prevention)
+  const [activeTransitionClass, setActiveTransitionClass] = useState('transition-opacity duration-700');
   
   const [croppedBgImage, setCroppedBgImage] = useState<string | null>(null); 
   const [bgImageStyle, setBgImageStyle] = useState<BgImageStyle>('cover');
@@ -123,6 +125,7 @@ const App: React.FC = () => {
   const [analysisStatus, setAnalysisStatus] = useState<string>('');
   const [showLyrics, setShowLyrics] = useState(false); // DOM Overlay Lyrics
   const [useLyricParticles, setUseLyricParticles] = useState(false); // 3D Particle Lyrics
+  const [useLyricEcho, setUseLyricEcho] = useState(false); // Eko (Audio Reactivity) Toggle
   const [activeLyricText, setActiveLyricText] = useState<string>(''); // Currently sung line
   
   const [audioCurrentTime, setAudioCurrentTime] = useState(0);
@@ -195,7 +198,6 @@ const App: React.FC = () => {
 
   // --- Audio Analysis Function (Worker) ---
   const analyzeAudio = async (url: string, lang: string = 'turkish') => {
-      // Müzik çalmaya devam etsin, analiz arkada dönsün
       setIsAnalyzing(true); 
       setLyrics([]); 
       initWorker();
@@ -283,7 +285,6 @@ const App: React.FC = () => {
           const t = audio.currentTime;
           setAudioCurrentTime(t);
           
-          // Find Active Lyric
           if (lyrics.length > 0) {
               const activeLine = lyrics.find(l => t >= l.start && t < l.end);
               if (activeLine) {
@@ -309,9 +310,24 @@ const App: React.FC = () => {
       }
   }, [isPlaying, volume, audioUrl]);
 
-  // --- Slayt Gösterisi Mantığı ---
+  // --- Slayt Gösterisi ve Transition Mantığı (Strobe Fix) ---
   useEffect(() => {
       let intervalId: any;
+
+      const getTransitionClassString = (t: SlideshowTransition) => {
+          switch (t) {
+              case 'slide-left': return 'animate-slide-left';
+              case 'slide-right': return 'animate-slide-right';
+              case 'slide-up': return 'animate-slide-up';
+              case 'slide-down': return 'animate-slide-down';
+              case 'fade': return 'animate-fade-in-out';
+              case 'blur': return 'animate-blur-in-out';
+              case 'transform': return 'animate-transform-zoom';
+              case 'particles': return 'animate-pixelate';
+              default: return 'transition-all duration-1000';
+          }
+      };
+
       if (slideshowSettings.active && bgImages.length > 1 && bgMode === 'image') {
           intervalId = setInterval(() => {
               setBgImages(currentImages => {
@@ -321,12 +337,23 @@ const App: React.FC = () => {
                       let nextIndex = 0;
                       if (slideshowSettings.order === 'random') {
                           do { nextIndex = Math.floor(Math.random() * currentImages.length); } while (nextIndex === currentIndex && currentImages.length > 1);
-                      } else { nextIndex = (currentIndex + 1) % currentImages.length; }
+                      } else {
+                          nextIndex = (currentIndex + 1) % currentImages.length;
+                      }
                       return currentImages[nextIndex];
                   });
                   return currentImages;
               });
               setCroppedBgImage(null);
+
+              // Calculate transition ONLY when slide changes
+              let nextT = slideshowSettings.transition;
+              if (nextT === 'random') {
+                  const effects = ['slide-left', 'slide-right', 'slide-up', 'slide-down', 'fade', 'blur', 'transform'];
+                  nextT = effects[Math.floor(Math.random() * effects.length)] as any;
+              }
+              setActiveTransitionClass(getTransitionClassString(nextT));
+
           }, Math.max(3000, slideshowSettings.duration * 1000));
       }
       return () => { if (intervalId) clearInterval(intervalId); };
@@ -426,19 +453,13 @@ const App: React.FC = () => {
   const handleClearCanvas = () => { setClearCanvasTrigger(prev => prev + 1); };
   const handleShapeChange = (shape: ShapeType) => { setCurrentShape(shape); setCurrentText(''); setImageSourceXY(null); setImageSourceYZ(null); setUseImageColors(false); setDepthIntensity(0); setIsSceneVisible(true); setShowLyrics(false); };
   const handleResetAll = () => {
-    setCurrentText(''); setParticleColor('#ffffff'); setImageSourceXY(null); setImageSourceYZ(null); setUseImageColors(false); setDepthIntensity(0); setActivePreset('none'); setAudioMode('none'); setAudioUrl(null); setAudioTitle(null); setIsPlaying(true); setRepulsionStrength(50); setRepulsionRadius(50); setParticleCount(40000); setParticleSize(20); setModelDensity(50); setIsDrawing(false); setCanvasRotation([0, 0, 0]); setCurrentShape('sphere'); setCameraResetTrigger(prev => prev + 1); setBgMode('dark'); setIsSceneVisible(true); setBgImage(null); setCroppedBgImage(null); setSlideshowSettings(prev => ({...prev, active: false})); setIsAutoRotating(false); setShowLyrics(false); setLyrics([]); setIsAnalyzing(false); setUseLyricParticles(false); setActiveLyricText('');
+    setCurrentText(''); setParticleColor('#ffffff'); setImageSourceXY(null); setImageSourceYZ(null); setUseImageColors(false); setDepthIntensity(0); setActivePreset('none'); setAudioMode('none'); setAudioUrl(null); setAudioTitle(null); setIsPlaying(true); setRepulsionStrength(50); setRepulsionRadius(50); setParticleCount(40000); setParticleSize(20); setModelDensity(50); setIsDrawing(false); setCanvasRotation([0, 0, 0]); setCurrentShape('sphere'); setCameraResetTrigger(prev => prev + 1); setBgMode('dark'); setIsSceneVisible(true); setBgImage(null); setCroppedBgImage(null); setSlideshowSettings(prev => ({...prev, active: false})); setIsAutoRotating(false); setShowLyrics(false); setLyrics([]); setIsAnalyzing(false); setUseLyricParticles(false); setActiveLyricText(''); setUseLyricEcho(false);
   };
   const rotateCanvasX = () => setCanvasRotation(prev => [prev[0] + Math.PI / 2, prev[1], prev[2]]);
   const rotateCanvasY = () => setCanvasRotation(prev => [prev[0], prev[1] + Math.PI / 2, prev[2]]);
   const rotateCanvasZ = () => setCanvasRotation(prev => [prev[0], prev[1], prev[2] + Math.PI / 2]);
 
   const displayImage = bgMode === 'image' ? (croppedBgImage || bgImage) : null;
-  const getTransitionClass = () => {
-      if (!slideshowSettings.active) return 'transition-opacity duration-700';
-      let t = slideshowSettings.transition;
-      if (t === 'random') { const effects = ['slide-left', 'slide-right', 'slide-up', 'slide-down', 'fade', 'blur', 'transform']; t = effects[Math.floor(Math.random() * effects.length)] as any; }
-      switch (t) { case 'slide-left': return 'animate-slide-left'; case 'slide-right': return 'animate-slide-right'; case 'slide-up': return 'animate-slide-up'; case 'slide-down': return 'animate-slide-down'; case 'fade': return 'animate-fade-in-out'; case 'blur': return 'animate-blur-in-out'; case 'transform': return 'animate-transform-zoom'; case 'particles': return 'animate-pixelate'; default: return 'transition-all duration-1000'; }
-  };
 
   // --- Screensaver & App Layer Styles ---
   let appDuration = '0.25s', ssDuration = '0.25s';
@@ -490,7 +511,7 @@ const App: React.FC = () => {
       <div id="app-layer" style={appLayerStyle} className="bg-black shadow-2xl">
           <div className="relative w-full h-full overflow-hidden">
             <div className="absolute inset-0 z-0 transition-colors duration-1000 ease-in-out" style={{ backgroundColor: bgMode === 'dark' ? '#000' : bgMode === 'light' ? '#fff' : bgMode === 'color' ? customBgColor : 'transparent' }}>
-                {displayImage && (<img key={displayImage} src={displayImage} alt="background" className={`w-full h-full object-cover select-none pointer-events-none ${getTransitionClass()}`} style={{ objectFit: bgImageStyle, objectPosition: 'center center' }} />)}
+                {displayImage && (<img key={displayImage} src={displayImage} alt="background" className={`w-full h-full object-cover select-none pointer-events-none ${slideshowSettings.active ? activeTransitionClass : 'transition-opacity duration-700'}`} style={{ objectFit: bgImageStyle, objectPosition: 'center center' }} />)}
                 {bgMode === 'gradient' && ( <div className="w-full h-full bg-[linear-gradient(45deg,#ff0000,#ff7300,#fffb00,#48ff00,#00ffd5,#002bff,#7a00ff,#ff00c8,#ff0000)] bg-[length:400%_400%] animate-gradient-xy opacity-80" style={{ animation: 'gradientMove 15s ease infinite' }} /> )}
                 {bgMode === 'auto' && ( <div className="w-full h-full animate-color-cycle" /> )}
             </div>
@@ -537,6 +558,7 @@ const App: React.FC = () => {
                   isSceneVisible={isSceneVisible} 
                   isAutoRotating={isAutoRotating} 
                   onStopAutoRotation={() => setIsAutoRotating(false)} 
+                  enableAudioReactivity={useLyricEcho} // Pass down new prop
                 />
             </div>
             
@@ -609,6 +631,8 @@ const App: React.FC = () => {
                 useLyricParticles={useLyricParticles}
                 onToggleLyricParticles={() => setUseLyricParticles(!useLyricParticles)}
                 hasLyrics={lyrics.length > 0}
+                useLyricEcho={useLyricEcho}
+                onToggleLyricEcho={() => setUseLyricEcho(!useLyricEcho)}
             />
           </div>
       </div>
